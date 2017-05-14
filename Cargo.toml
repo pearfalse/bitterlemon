@@ -1,0 +1,6 @@
+[package]
+name = "bitterlemon"
+version = "0.1.0"
+authors = ["Simon Harris <simon@pearfalse.com>"]
+
+[dependencies]
