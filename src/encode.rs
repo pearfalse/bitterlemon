@@ -8,6 +8,51 @@ pub enum Run {
 	Clear(u8)
 }
 
+impl Run {
+	fn size(&self) -> u8 {
+		match *self {
+			Run::Set(x) => x,
+			Run::Clear(x) => x,
+		}
+	}
+
+	fn size_mut<'a>(&'a mut self) -> &'a mut u8 {
+		match *self {
+			Run::Set(ref mut x) => x,
+			Run::Clear(ref mut x) => x,
+		}
+	}
+}
+
+#[cfg(test)]
+mod run_tests {
+
+	use super::Run::*;
+
+	#[test]
+	fn size() {
+		assert_eq!(50, Set(50).size());
+		assert_eq!(50, Clear(50).size());
+		assert_eq!(Set(50).size(), Clear(50).size());
+	}
+
+	#[test]
+	fn size_mut() {
+		macro_rules! implement {
+			($e:ident) => (
+				let mut run = super::Run::$e(20);
+				assert_eq!(20, *run.size_mut());
+
+				*run.size_mut() += 2;
+				assert_eq!($e(22), run);
+			)
+		}
+
+		implement!(Set);
+		implement!(Clear);
+	}
+}
+
 impl Into<u8> for Run {
 	fn into(self) -> u8 {
 
