@@ -1,5 +1,7 @@
 //! Handles encoding of a Bitterlemon image
 
+extern crate arrayvec;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Run {
 	Set(u8),
@@ -127,6 +129,97 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 	}
 }
 
+type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct WithFrames<S> {
+	runs: RunHolding,
+	source: S
+}
+
+impl<S: Iterator<Item=Run>> WithFrames<S> {
+	pub fn new(source: S) -> WithFrames<S> {
+		WithFrames {
+			runs: RunHolding::new(),
+			source: source,
+		}
+	}
+}
+
+fn bytes_as_frame(runs: &RunHolding) -> usize {
+	let total_bits: usize = runs.iter().map(|&run| match run {
+		Run::Set(x) => x as usize,
+		Run::Clear(x) => x as usize,
+	}).sum();
+
+	(total_bits + 15) >> 3 // round up to next byte, add header
+}
+
+fn bytes_as_runs(runs: &RunHolding) -> usize {
+	// runs in bytes are next highest multiples of 64
+	runs.iter().map(|&run| {
+		let found = match run {
+			Run::Set(x) => x,
+			Run::Clear(x) => x,
+		};
+		debug_assert!(found > 0);
+		(found + 63) >> 6
+	} as usize).sum()
+}
+
+
+#[cfg(test)]
+mod test_frame_sizer {
+
+	use super::*;
+	use super::Run::*;
+
+	fn op(input: &[Run], frame_size: usize, run_size: usize) {
+		let mut builder = RunHolding::new();
+
+		for element in input {
+			assert_eq!(None, builder.push(element.clone()));
+		}
+
+		assert_eq!(frame_size, bytes_as_frame(&builder));
+		assert_eq!(run_size, bytes_as_runs(&builder));
+	}
+
+	#[test]
+	fn empty() {
+		op(&[], 1, 0);
+	}
+
+	#[test]
+	fn single_set() {
+		op(&[Set(1)], 2, 1);
+	}
+
+	#[test]
+	fn single_clear() {
+		op(&[Clear(1)], 2, 1);
+	}
+	#[test]
+	fn enough_to_overflow_a_frame_to_2_post_header_bytes() {
+		op(&[Set(5), Clear(5)], 3, 2);
+	}
+
+	#[test]
+	fn can_pack_3_runs_into_a_single_frame_byte() {
+		op(&[Clear(3), Set(2), Clear(3)], 2, 3);
+	}
+}
+
+impl<S> Iterator for WithFrames<S> {
+	type Item = u8;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		unimplemented!();
+	}
+
+}
+
+
 #[cfg(test)]
 mod test_runs {
 
@@ -156,7 +249,7 @@ mod test_runs {
 		op(b"011", &[Clear(1), Set(2)]);
 		op(b"110", &[Set(2), Clear(1)]);
 		op(b"0101", &[Clear(1), Set(1), Clear(1), Set(1)]);
-		
+
 		// run size limits
 		let large_set = [b'1'; (super::RLE_MAX_RUN + 1) as usize];
 		op(&large_set, &[Set(super::RLE_MAX_RUN), Set(1)]);
