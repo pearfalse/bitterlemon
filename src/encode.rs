@@ -52,7 +52,10 @@ mod test_runs {
 				let mut run = super::Run::$e(20);
 				assert_eq!(20, *run.size_mut());
 
-				*run.size_mut() += 2;
+				{
+					let r = run.size_mut();
+					*r += 2;
+				}
 				assert_eq!($e(22), run);
 			)
 		}
@@ -230,7 +233,7 @@ trait RunHoldingExtensions {
 	fn bytes_as_frame(&self) -> (u8, u8);
 	fn bytes_as_runs(&self) -> u16;
 	fn num_pixels(&self) -> u8;
-	fn run_at(&self, ptr: u8) -> Run;
+	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
 }
 
 impl RunHoldingExtensions for RunHolding {
@@ -262,8 +265,17 @@ impl RunHoldingExtensions for RunHolding {
 		self.iter().map(Run::size).sum()
 	}
 
-	fn run_at(&self, ptr: u8) -> Run {
-		self.get(ptr as usize).unwrap().clone()
+	fn unshift_bit(&mut self, ptr: &mut u8) -> u8 {
+		let mut head_run = self.get_mut(*ptr as usize).unwrap();
+		let r = head_run.bit();
+
+		let head_size = head_run.size_mut();
+		*head_size -= 1;
+		if *head_size == 0 {
+			*ptr += 1;
+		}
+
+		r
 	}
 }
 
@@ -375,39 +387,20 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				}
 			},
 			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
-				println!("Flushing frame; holding = {:?}", self.runs);
+				// println!("Flushing frame; holding = {:?}", self.runs);
 				// mid-frame
-				let mut run;
 
 				// drain run to fill a byte
 				let mut byte = 0u8;
 				let mut mask = 7;
 				for i in 0..8 {
 
-					println!("i is {}, mode is {:?}/{:?}", i, *ptr, *size);
-					run = self.runs.run_at(*ptr);
-
-					byte |= run.bit() << mask;
+					byte |= self.runs.unshift_bit(ptr) << mask;
 					mask -= 1;
 
-					let run_size = {
-						let mut run_size = run.size_mut();
-						*run_size -= 1;
-						(*run_size).clone()
-					};
-
-					if run_size == 0 {
-						// we exhausted this run filling a byte, try the next
-						*ptr += 1;
-						println!("ptr now {:?}", *ptr);
-					}
-
 					if ptr == size {
-						// oops, nothing left
+						// run exhausted
 						break;
-					}
-					else {
-						println!("not breaking. justification: {} != {}", *ptr, run_size);
 					}
 				}
 
@@ -509,5 +502,12 @@ mod test_with_frames {
 		}
 		let output : Vec<u8> = from_these!(src.as_slice()).collect();
 		assert_eq!(&[0x07, 0x54], output.as_slice());
+	}
+
+	#[test]
+	fn two_bytes() {
+		let output : Vec<u8> = from_these!(&[Run::Set(6), Run::Clear(4), Run::Set(6)]).collect();
+
+		assert_eq!(&[0x10, 0xfc, 0x3f], output.as_slice());
 	}
 }
