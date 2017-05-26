@@ -230,6 +230,7 @@ trait RunHoldingExtensions {
 	fn bytes_as_frame(&self) -> (u8, u8);
 	fn bytes_as_runs(&self) -> u16;
 	fn num_pixels(&self) -> u8;
+	fn run_at(&self, ptr: u8) -> Run;
 }
 
 impl RunHoldingExtensions for RunHolding {
@@ -259,6 +260,10 @@ impl RunHoldingExtensions for RunHolding {
 
 	fn num_pixels(&self) -> u8 {
 		self.iter().map(Run::size).sum()
+	}
+
+	fn run_at(&self, ptr: u8) -> Run {
+		self.get(ptr as usize).unwrap().clone()
 	}
 }
 
@@ -361,7 +366,8 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				else if self.runs.len() > 0 {
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
-					(Some(self.runs.num_pixels()), Some(WithFramesMode::FlushingFrame(0, 0)))
+					let frame_size = self.runs.len() as u8;
+					(Some(self.runs.num_pixels()), Some(WithFramesMode::FlushingFrame(0, frame_size)))
 				}
 				else {
 					// if here, must have previously purged the frame that finishes all iteration
@@ -369,22 +375,39 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				}
 			},
 			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
+				println!("Flushing frame; holding = {:?}", self.runs);
 				// mid-frame
-				let mut run = self.runs.get(*ptr as usize).unwrap().clone(); // clone to eliminate borrow of self.runs
+				let mut run;
 
 				// drain run to fill a byte
 				let mut byte = 0u8;
-				for _ in 0..8 {
-					byte = (byte << 1) | run.bit();
-					let mut run_size = run.size_mut();
-					*run_size -= 1;
-					if *run_size == 0 {
+				let mut mask = 7;
+				for i in 0..8 {
+
+					println!("i is {}, mode is {:?}/{:?}", i, *ptr, *size);
+					run = self.runs.run_at(*ptr);
+
+					byte |= run.bit() << mask;
+					mask -= 1;
+
+					let run_size = {
+						let mut run_size = run.size_mut();
+						*run_size -= 1;
+						(*run_size).clone()
+					};
+
+					if run_size == 0 {
 						// we exhausted this run filling a byte, try the next
 						*ptr += 1;
-						if ptr == run_size {
-							// oops, nothing left
-							break;
-						}
+						println!("ptr now {:?}", *ptr);
+					}
+
+					if ptr == size {
+						// oops, nothing left
+						break;
+					}
+					else {
+						println!("not breaking. justification: {} != {}", *ptr, run_size);
 					}
 				}
 
@@ -455,5 +478,36 @@ mod test_with_frames {
 	fn empty_frame() {
 		let mut src = from_these!(&[]);
 		assert!(src.next() == None);
+	}
+
+	#[test]
+	fn one_byte_frame_filled() {
+		let mut v = Vec::with_capacity(8);
+		for _ in 0..4 {
+			v.push(Run::Set(1));
+			v.push(Run::Clear(1));
+		}
+
+		let src = from_these!(v.as_slice());
+		let output : Vec<u8> = src.collect();
+		assert_eq!(&[0x08, 0xaa], output.as_slice());
+	}
+
+	#[test]
+	fn one_bit() {
+		let output : Vec<u8> = from_these!(&[Run::Set(1)]).collect();
+		assert_eq!(&[0x01, 0x80], output.as_slice());
+	}
+
+	#[test]
+	fn byte_nearly_filled() {
+		let mut src = Vec::with_capacity(7);
+		src.push(Run::Clear(1));
+		for _ in 0..3 {
+			src.push(Run::Set(1));
+			src.push(Run::Clear(1));
+		}
+		let output : Vec<u8> = from_these!(src.as_slice()).collect();
+		assert_eq!(&[0x07, 0x54], output.as_slice());
 	}
 }
