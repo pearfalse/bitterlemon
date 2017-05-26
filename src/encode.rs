@@ -2,6 +2,8 @@
 
 extern crate arrayvec;
 
+use std::iter;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Run {
 	Set(u8),
@@ -9,7 +11,7 @@ pub enum Run {
 }
 
 impl Run {
-	fn size(&self) -> u8 {
+	fn size(&self) -> u8 { // TODO rename this to len for Rusticity
 		match *self {
 			Run::Set(x) => x,
 			Run::Clear(x) => x,
@@ -22,10 +24,17 @@ impl Run {
 			Run::Clear(ref mut x) => x,
 		}
 	}
+
+	fn bit(&self) -> u8 {
+		match *self {
+			Run::Set(_) => 1,
+			Run::Clear(_) => 0,
+		}
+	}
 }
 
 #[cfg(test)]
-mod run_tests {
+mod test_runs {
 
 	use super::Run::*;
 
@@ -174,99 +183,8 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 	}
 }
 
-type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct WithFrames<S> {
-	runs: RunHolding,
-	source: S
-}
-
-impl<S: Iterator<Item=Run>> WithFrames<S> {
-	pub fn new(source: S) -> WithFrames<S> {
-		WithFrames {
-			runs: RunHolding::new(),
-			source: source,
-		}
-	}
-}
-
-fn bytes_as_frame(runs: &RunHolding) -> usize {
-	let total_bits: usize = runs.iter().map(|&run| match run {
-		Run::Set(x) => x as usize,
-		Run::Clear(x) => x as usize,
-	}).sum();
-
-	(total_bits + 15) >> 3 // round up to next byte, add header
-}
-
-fn bytes_as_runs(runs: &RunHolding) -> usize {
-	// runs in bytes are next highest multiples of 64
-	runs.iter().map(|&run| {
-		let found = match run {
-			Run::Set(x) => x,
-			Run::Clear(x) => x,
-		};
-		debug_assert!(found > 0);
-		(found + 63) >> 6
-	} as usize).sum()
-}
-
-
 #[cfg(test)]
-mod test_frame_sizer {
-
-	use super::*;
-	use super::Run::*;
-
-	fn op(input: &[Run], frame_size: usize, run_size: usize) {
-		let mut builder = RunHolding::new();
-
-		for element in input {
-			assert_eq!(None, builder.push(element.clone()));
-		}
-
-		assert_eq!(frame_size, bytes_as_frame(&builder));
-		assert_eq!(run_size, bytes_as_runs(&builder));
-	}
-
-	#[test]
-	fn empty() {
-		op(&[], 1, 0);
-	}
-
-	#[test]
-	fn single_set() {
-		op(&[Set(1)], 2, 1);
-	}
-
-	#[test]
-	fn single_clear() {
-		op(&[Clear(1)], 2, 1);
-	}
-	#[test]
-	fn enough_to_overflow_a_frame_to_2_post_header_bytes() {
-		op(&[Set(5), Clear(5)], 3, 2);
-	}
-
-	#[test]
-	fn can_pack_3_runs_into_a_single_frame_byte() {
-		op(&[Clear(3), Set(2), Clear(3)], 2, 3);
-	}
-}
-
-impl<S> Iterator for WithFrames<S> {
-	type Item = u8;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		unimplemented!();
-	}
-
-}
-
-
-#[cfg(test)]
-mod test_runs {
+mod test_run_builder {
 
 	use std::iter::Iterator;
 
@@ -305,3 +223,237 @@ mod test_runs {
 	}
 }
 
+
+type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
+
+trait RunHoldingExtensions {
+	fn bytes_as_frame(&self) -> (u8, u8);
+	fn bytes_as_runs(&self) -> u16;
+	fn num_pixels(&self) -> u8;
+}
+
+impl RunHoldingExtensions for RunHolding {
+	fn bytes_as_frame(&self) -> (u8, u8) {
+		let total_bits: usize = self.iter().map(|&run| match run {
+			Run::Set(x) => x as usize,
+			Run::Clear(x) => x as usize,
+		}).sum();
+
+		let total_bits = total_bits + 8; // for the header
+		let bytes = ((total_bits + 7) >> 3) as u8;
+		let padding = (total_bits & 7) as u8;
+		(bytes, padding)
+	}
+
+	fn bytes_as_runs(&self) -> u16 {
+		// runs in bytes are next highest multiples of 64
+		self.iter().map(|&run| {
+			let found = match run {
+				Run::Set(x) => x,
+				Run::Clear(x) => x,
+			};
+			debug_assert!(found > 0);
+			(found + 63) >> 6
+		} as u16).sum()
+	}
+
+	fn num_pixels(&self) -> u8 {
+		self.iter().map(Run::size).sum()
+	}
+}
+
+#[cfg(test)]
+mod run_holding_extensions {
+
+	use super::*;
+	use super::Run::*;
+
+	fn op(input: &[Run], frame_size: u8, run_size: u16) {
+		let mut builder = RunHolding::new();
+
+		for element in input {
+			assert_eq!(None, builder.push(element.clone()));
+		}
+
+		assert_eq!(frame_size, builder.bytes_as_frame().0);
+		assert_eq!(run_size, builder.bytes_as_runs());
+	}
+
+	#[test]
+	fn empty() {
+		op(&[], 1, 0);
+	}
+
+	#[test]
+	fn single_set() {
+		op(&[Set(1)], 2, 1);
+	}
+
+	#[test]
+	fn single_clear() {
+		op(&[Clear(1)], 2, 1);
+	}
+	#[test]
+	fn enough_to_overflow_a_frame_to_2_post_header_bytes() {
+		op(&[Set(5), Clear(5)], 3, 2);
+	}
+
+	#[test]
+	fn can_pack_3_runs_into_a_single_frame_byte() {
+		op(&[Clear(3), Set(2), Clear(3)], 2, 3);
+	}
+}
+
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct WithFrames<S> {
+	runs: RunHolding,
+	mode: WithFramesMode,
+	source: S,
+	next_run: Option<Run>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WithFramesMode {
+	Filling,
+	FlushingFrame(u8, u8), // ptr, length
+}
+
+impl<S: Iterator<Item=Run>> WithFrames<S> {
+	pub fn new(source: S) -> WithFrames<S> {
+		WithFrames {
+			runs: RunHolding::new(),
+			mode: WithFramesMode::Filling,
+			source: source,
+			next_run: None,
+		}
+	}
+
+	fn next_should_expand_frame(&mut self) -> bool {
+		let run_size = self.next_run.unwrap().size();
+
+		// let's get some clear cases out of the way first
+		if run_size < 8 { return true; }
+		if run_size >= 16 { return false; }
+
+		let (_, padding) = self.runs.bytes_as_frame();
+		// only add to the frame if the frame size increase is < 2 bytes
+		// IOW, run size - frame padding < 16 bits
+		run_size - padding < 16
+	}
+
+	fn next_add_to_frame(&mut self)  {
+		let next_run = self.next_run.take().unwrap();
+		self.runs.push(next_run);
+	}
+
+	fn next_continue_purge(&mut self) -> Option<<Self as Iterator>::Item> {
+		println!("{:?}", self.mode);
+		let (to_return, next_mode) : (Option<u8>, Option<WithFramesMode>) = match self.mode {
+			WithFramesMode::Filling => {
+
+				if let Some(_) = self.next_run {
+					// expecting to fill a frame, but was told not to do it here
+					// move the run out instead
+					let moved_run = self.next_run.take().unwrap().into();
+					(Some(moved_run), None)
+				}
+				else if self.runs.len() > 0 {
+					// return header for new frame to output
+					// and prime next mode to be WithFramesMode::FlushingFrame
+					(Some(self.runs.num_pixels()), Some(WithFramesMode::FlushingFrame(0, 0)))
+				}
+				else {
+					// if here, must have previously purged the frame that finishes all iteration
+					(None, None)
+				}
+			},
+			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
+				// mid-frame
+				let mut run = self.runs.get(*ptr as usize).unwrap().clone(); // clone to eliminate borrow of self.runs
+
+				// drain run to fill a byte
+				let mut byte = 0u8;
+				for _ in 0..8 {
+					byte = (byte << 1) | run.bit();
+					let mut run_size = run.size_mut();
+					*run_size -= 1;
+					if *run_size == 0 {
+						// we exhausted this run filling a byte, try the next
+						*ptr += 1;
+						if ptr == run_size {
+							// oops, nothing left
+							break;
+						}
+					}
+				}
+
+				let next_mode = if ptr == size {
+					self.runs = RunHolding::new(); // reset run holder
+					Some(WithFramesMode::Filling)
+				} else { None };
+				(Some(byte), next_mode)
+			},
+		};
+
+		if let Some(next_mode) = next_mode {
+			self.mode = next_mode;
+		}
+
+		to_return
+	}
+}
+
+impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
+	type Item = u8;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		// check next run size.
+		// if size < 8:
+		//   add run to current frame
+		// if 8 <= size < 16:
+		//   let increase = see how much the frame would increase by, in bytes if you added this run
+		//   if increase > 1:
+		//     flush current frame, allowing next run to part-pour into frame padding
+		//   else:
+		//     add run to current frame
+		// else:
+		//   flush current frame
+
+		loop {
+
+			// get next element, if there is one
+			if self.next_run.is_none() {
+				self.next_run = self.source.next();
+			}
+
+			if self.next_run.is_none() {
+				return self.next_continue_purge();
+			}
+
+			if self.next_should_expand_frame() {
+				self.next_add_to_frame();
+				continue;
+			}
+
+			return self.next_continue_purge();
+		}
+	}
+}
+
+#[cfg(test)]
+mod test_with_frames {
+	use super::*;
+
+	macro_rules! from_these {
+		($slice:expr) => {
+			WithFrames::new(($slice as &[Run]).into_iter().cloned())
+		}
+	}
+
+	#[test]
+	fn empty_frame() {
+		let mut src = from_these!(&[]);
+		assert!(src.next() == None);
+	}
+}
