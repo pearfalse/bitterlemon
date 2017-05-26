@@ -369,17 +369,18 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 		let (to_return, next_mode) : (Option<u8>, Option<WithFramesMode>) = match self.mode {
 			WithFramesMode::Filling => {
 
-				if let Some(_) = self.next_run {
-					// expecting to fill a frame, but was told not to do it here
-					// move the run out instead
-					let moved_run = self.next_run.take().unwrap().into();
-					(Some(moved_run), None)
-				}
-				else if self.runs.len() > 0 {
+				if self.runs.len() > 0 {
+					println!("Ceasing filling");
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
 					(Some(self.runs.num_pixels()), Some(WithFramesMode::FlushingFrame(0, frame_size)))
+				}
+				else if let Some(_) = self.next_run {
+					// expecting to fill a frame, but was told not to do it here
+					// move the run out instead
+					let moved_run = self.next_run.take().unwrap().into();
+					(Some(moved_run), None)
 				}
 				else {
 					// if here, must have previously purged the frame that finishes all iteration
@@ -416,6 +417,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 			self.mode = next_mode;
 		}
 
+		println!("--> {:?}", to_return);
 		to_return
 	}
 }
@@ -437,6 +439,7 @@ impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
 		//   flush current frame
 
 		loop {
+			println!("loop");
 
 			// get next element, if there is one
 			if self.next_run.is_none() {
@@ -522,5 +525,17 @@ mod test_with_frames {
 		execute(&[Run::Set(16)]);
 		execute(&[Run::Clear(16)]);
 		execute(&[Run::Clear(16), Run::Set(16)]);
+	}
+
+	#[test]
+	fn abandon_frame_on_long_runs() {
+		let case = |input: &[Run], expected: &[u8]| {
+			let output : Vec<u8> = from_these!(input).collect();
+			assert_eq!(expected, output.as_slice());
+		};
+
+		case(&[Run::Set(2), Run::Clear(16)], &[0x02, 0xc0, 0x90]);
+		case(&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
+			&[0x94, 0x02, 0x80, 0xd4]);
 	}
 }
