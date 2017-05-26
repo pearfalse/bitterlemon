@@ -510,4 +510,17 @@ mod test_with_frames {
 
 		assert_eq!(&[0x10, 0xfc, 0x3f], output.as_slice());
 	}
+
+	#[test]
+	fn never_create_frame_for_longer_runs() {
+		let execute = |inputs: &[Run]| {
+			let output : Vec<u8> = from_these!(inputs).collect();
+			let direct_bytes : Vec<u8> = inputs.iter().map(|r| (*r).into()).collect();
+			assert_eq!(direct_bytes, output);
+		};
+
+		execute(&[Run::Set(16)]);
+		execute(&[Run::Clear(16)]);
+		execute(&[Run::Clear(16), Run::Set(16)]);
+	}
 }
