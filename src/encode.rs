@@ -470,6 +470,11 @@ mod test_with_frames {
 		}
 	}
 
+	fn case(input: &[Run], expected: &[u8]) {
+		let output : Vec<u8> = from_these!(input).collect();
+		assert_eq!(expected, output.as_slice());
+	}
+
 	#[test]
 	fn empty_frame() {
 		let mut src = from_these!(&[]);
@@ -529,13 +534,15 @@ mod test_with_frames {
 
 	#[test]
 	fn abandon_frame_on_long_runs() {
-		let case = |input: &[Run], expected: &[u8]| {
-			let output : Vec<u8> = from_these!(input).collect();
-			assert_eq!(expected, output.as_slice());
-		};
 
 		case(&[Run::Set(2), Run::Clear(16)], &[0x02, 0xc0, 0x90]);
 		case(&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
 			&[0x94, 0x02, 0x80, 0xd4]);
+	}
+
+	#[test]
+	fn conditional_on_padding() {
+		case(&[Run::Set(1), Run::Clear(15)], &[0x10, 0x80, 0x00]);
+		case(&[Run::Set(7), Run::Clear(1), Run::Set(8)], &[0x10, 0xfe, 0xff]);
 	}
 }
