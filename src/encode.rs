@@ -385,12 +385,10 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 	}
 
 	fn next_continue_purge(&mut self) -> Option<<Self as Iterator>::Item> {
-		println!("{:?}", self.mode);
 		let (to_return, next_mode) : (Option<u8>, Option<WithFramesMode>) = match self.mode {
 			WithFramesMode::Filling => {
 
 				if self.runs.len() > 0 {
-					println!("Ceasing filling");
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
@@ -408,7 +406,6 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				}
 			},
 			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
-				// println!("Flushing frame; holding = {:?}", self.runs);
 				// mid-frame
 
 				// drain run to fill a byte
@@ -437,7 +434,6 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 			self.mode = next_mode;
 		}
 
-		println!("--> {:?}", to_return);
 		to_return
 	}
 }
@@ -459,8 +455,6 @@ impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
 		//   flush current frame
 
 		loop {
-			println!("loop");
-
 			// get next element, if there is one
 			if self.next_run.is_none() {
 				self.next_run = self.source.next();
