@@ -244,6 +244,15 @@ mod test_run_builder {
 		let large_clear = [b'0' ; (super::RLE_MAX_RUN + 1) as usize];
 		op(&large_clear, &[Clear(super::RLE_MAX_RUN), Clear(1)]);
 	}
+
+	#[test]
+	fn next_none_idempotence() {
+		let mut iter = RunIterator::from_pixels((&[] as &[bool]).iter().map(|&b| b));
+		for i in 0..20 {
+			let next = iter.next();
+			assert_eq!(None, next, "pulling next() on run {} was {:?}, not None", i, next);
+		}
+	}
 }
 
 
@@ -497,6 +506,15 @@ mod test_with_frames {
 	#[test]
 	fn empty_frame() {
 		case (&[], &[]);
+	}
+
+	#[test]
+	fn next_none_idempotence() {
+		let mut iter = WithFrames::new((&[] as &[Run]).iter().map(|&b| b));
+		for i in 0..20 {
+			let next = iter.next();
+			assert_eq!(None, next, "pulling next() on run {} was {:?}, not None", i, next);
+		}
 	}
 
 	#[test]
