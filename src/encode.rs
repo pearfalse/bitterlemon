@@ -387,8 +387,13 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 	fn next_continue_purge(&mut self) -> Option<<Self as Iterator>::Item> {
 		let (to_return, next_mode) : (Option<u8>, Option<WithFramesMode>) = match self.mode {
 			WithFramesMode::Filling => {
-
-				if self.runs.len() > 0 {
+				if self.runs.len() == 1 {
+					// special case: told to abandon a one-run frame
+					// should just output the run instead
+					let moved_run = self.runs.pop().unwrap();
+					(Some(moved_run.into()), None /* keep Filling */)
+				}
+				else if self.runs.len() > 0 {
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
@@ -397,8 +402,8 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				else if let Some(_) = self.next_run {
 					// expecting to fill a frame, but was told not to do it here
 					// move the run out instead
-					let moved_run = self.next_run.take().unwrap().into();
-					(Some(moved_run), None)
+					let moved_run = self.next_run.take().unwrap();
+					(Some(moved_run.into()), None)
 				}
 				else {
 					// if here, must have previously purged the frame that finishes all iteration
@@ -411,7 +416,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				// drain run to fill a byte
 				let mut byte = 0u8;
 				let mut mask = 7;
-				for i in 0..8 {
+				for _ in 0..8 {
 
 					byte |= self.runs.unshift_bit(ptr) << mask;
 					mask -= 1;
@@ -491,8 +496,7 @@ mod test_with_frames {
 
 	#[test]
 	fn empty_frame() {
-		let mut src = from_these!(&[]);
-		assert!(src.next() == None);
+		case (&[], &[]);
 	}
 
 	#[test]
@@ -503,15 +507,17 @@ mod test_with_frames {
 			v.push(Run::Clear(1));
 		}
 
-		let src = from_these!(v.as_slice());
-		let output : Vec<u8> = src.collect();
-		assert_eq!(&[0x08, 0xaa], output.as_slice());
+		case(v.as_slice(), &[0x08, 0xaa]);
 	}
 
 	#[test]
-	fn one_bit() {
-		let output : Vec<u8> = from_these!(&[Run::Set(1)]).collect();
-		assert_eq!(&[0x01, 0x80], output.as_slice());
+	fn one_run() {
+		case(&[Run::Set(1)], &[0xc1]);
+	}
+
+	#[test]
+	fn two_runs() {
+		case(&[Run::Clear(1), Run::Set(1)], &[0x02, 0x40]);
 	}
 
 	#[test]
@@ -522,15 +528,12 @@ mod test_with_frames {
 			src.push(Run::Set(1));
 			src.push(Run::Clear(1));
 		}
-		let output : Vec<u8> = from_these!(src.as_slice()).collect();
-		assert_eq!(&[0x07, 0x54], output.as_slice());
+		case(src.as_slice(), &[0x07, 0x54]);
 	}
 
 	#[test]
 	fn two_bytes() {
-		let output : Vec<u8> = from_these!(&[Run::Set(6), Run::Clear(4), Run::Set(6)]).collect();
-
-		assert_eq!(&[0x10, 0xfc, 0x3f], output.as_slice());
+		case(&[Run::Set(6), Run::Clear(4), Run::Set(6)], &[0x10, 0xfc, 0x3f]);
 	}
 
 	#[test]
@@ -549,7 +552,7 @@ mod test_with_frames {
 	#[test]
 	fn abandon_frame_on_long_runs() {
 
-		case(&[Run::Set(2), Run::Clear(16)], &[0x02, 0xc0, 0x90]);
+		case(&[Run::Clear(1), Run::Set(2), Run::Clear(16)], &[0x03, 0x60, 0x90]);
 		case(&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
 			&[0x94, 0x02, 0x80, 0xd4]);
 	}
@@ -558,5 +561,10 @@ mod test_with_frames {
 	fn conditional_on_padding() {
 		case(&[Run::Set(1), Run::Clear(15)], &[0x10, 0x80, 0x00]);
 		case(&[Run::Set(7), Run::Clear(1), Run::Set(8)], &[0x10, 0xfe, 0xff]);
+	}
+
+	#[test]
+	fn undo_single_byte_frame() {
+		case(&[Run::Set(1), Run::Clear(64)], &[0xc1, 0x80]);
 	}
 }
