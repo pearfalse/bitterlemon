@@ -117,6 +117,7 @@ fn rle_new_run(pp: bool) -> Run {
 }
 
 const RLE_MAX_RUN: u8 = 64;
+const RLE_MAX_FRAME: u8 = 128;
 
 impl<S: Iterator<Item=bool>> RunIterator<S> {
 
@@ -260,7 +261,6 @@ type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
 
 trait RunHoldingExtensions {
 	fn bytes_as_frame(&self) -> (u8, u8);
-	fn bytes_as_runs(&self) -> u16;
 	fn num_pixels(&self) -> u8;
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
 }
@@ -278,20 +278,10 @@ impl RunHoldingExtensions for RunHolding {
 		(bytes, padding)
 	}
 
-	fn bytes_as_runs(&self) -> u16 {
-		// runs in bytes are next highest multiples of 64
-		self.iter().map(|&run| {
-			let found = match run {
-				Run::Set(x) => x,
-				Run::Clear(x) => x,
-			};
-			debug_assert!(found > 0);
-			(found + 63) >> 6
-		} as u16).sum()
-	}
-
 	fn num_pixels(&self) -> u8 {
-		self.iter().map(Run::size).sum()
+		let r : usize = self.iter().map(|r| r.size() as usize).sum();
+		debug_assert!(r <= RLE_MAX_FRAME as usize, "number of frame pixels too high at {:?}", r);
+		r as u8
 	}
 
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8 {
@@ -322,7 +312,7 @@ mod run_holding_extensions {
 		}
 
 		assert_eq!(frame_size, builder.bytes_as_frame().0);
-		assert_eq!(run_size, builder.bytes_as_runs());
+		assert_eq!(run_size, builder.len() as u16);
 	}
 
 	#[test]
@@ -376,11 +366,22 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 	}
 
 	fn next_should_expand_frame(&mut self) -> bool {
+		// never expand a frame we're flushing
+		match self.mode {
+			WithFramesMode::FlushingFrame(_, _) => { return false; },
+			_ => {}
+		}
+
 		let run_size = self.next_run.unwrap().size();
+
+		// would the frame get too large?
+		let cur_frame_size = self.runs.num_pixels() as u16;
+		if cur_frame_size + (run_size as u16) > (RLE_MAX_FRAME as u16) { return false; }
 
 		// let's get some clear cases out of the way first
 		if run_size < 8 { return true; }
 		if run_size >= 16 { return false; }
+
 
 		let (_, padding) = self.runs.bytes_as_frame();
 		// only add to the frame if the frame size increase is < 2 bytes
@@ -406,7 +407,11 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
-					(Some(self.runs.num_pixels()), Some(WithFramesMode::FlushingFrame(0, frame_size)))
+					let header_byte = self.runs.num_pixels();
+					(
+						Some(if header_byte == RLE_MAX_FRAME {0u8} else {header_byte}),
+						Some(WithFramesMode::FlushingFrame(0, frame_size))
+					)
 				}
 				else if let Some(_) = self.next_run {
 					// expecting to fill a frame, but was told not to do it here
@@ -584,5 +589,28 @@ mod test_with_frames {
 	#[test]
 	fn undo_single_byte_frame() {
 		case(&[Run::Set(1), Run::Clear(64)], &[0xc1, 0x80]);
+	}
+
+	#[test]
+	fn avoid_frame_overflow() {
+		// capacities should reflect final compiled size
+		let mut inputs = Vec::with_capacity((RLE_MAX_FRAME as usize) + 1);
+		let mut outputs = Vec::with_capacity((RLE_MAX_FRAME as usize) / 8 + 2);
+
+		// create a set1-clear1 pattern that fills up a frame 100%...
+		for _ in 0..(RLE_MAX_FRAME / 2) {
+			inputs.push(Run::Set(1));
+			inputs.push(Run::Clear(1));
+		}
+		// ...then add one more
+		inputs.push(Run::Set(1));
+
+		outputs.push(0u8); // frame size
+		for _ in 0..(RLE_MAX_FRAME / 8) {
+			outputs.push(0xaa);
+		}
+		outputs.push(0xc1);
+
+		case(inputs.as_slice(), outputs.as_slice());
 	}
 }
