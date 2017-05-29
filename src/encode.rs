@@ -2,10 +2,30 @@
 
 extern crate arrayvec;
 
-use std::iter;
+pub fn encode<S>(source: S) -> Encoder<S>
+where S : Iterator<Item=bool> {
+	let runs_only = RunIterator::from_pixels(source);
+	let with_frames = WithFrames::new(runs_only);
+	Encoder {
+		encoder_impl: with_frames,
+	}
+}
+
+pub struct Encoder<S> {
+	encoder_impl: WithFrames<RunIterator<S>>,
+}
+
+impl<S> Iterator for Encoder<S>
+where S : Iterator<Item=bool> {
+	type Item = u8;
+	#[inline]
+	fn next(&mut self) -> Option<Self::Item> {
+		self.encoder_impl.next()
+	}
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Run {
+enum Run {
 	Set(u8),
 	Clear(u8)
 }
@@ -87,7 +107,7 @@ impl Into<u8> for Run {
 }
 
 #[derive(Debug)]
-pub struct RunIterator<S> {
+struct RunIterator<S> {
 	state: Option<Run>,
 	source: S,
 }
@@ -100,7 +120,7 @@ const RLE_MAX_RUN: u8 = 64;
 
 impl<S: Iterator<Item=bool>> RunIterator<S> {
 
-	pub fn from_pixels(source: S) -> RunIterator<S> {
+	fn from_pixels(source: S) -> RunIterator<S> {
 		RunIterator {
 			state: None,
 			source: source
@@ -323,7 +343,7 @@ mod run_holding_extensions {
 
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct WithFrames<S> {
+struct WithFrames<S> {
 	runs: RunHolding,
 	mode: WithFramesMode,
 	source: S,
@@ -337,7 +357,7 @@ enum WithFramesMode {
 }
 
 impl<S: Iterator<Item=Run>> WithFrames<S> {
-	pub fn new(source: S) -> WithFrames<S> {
+	fn new(source: S) -> WithFrames<S> {
 		WithFrames {
 			runs: RunHolding::new(),
 			mode: WithFramesMode::Filling,

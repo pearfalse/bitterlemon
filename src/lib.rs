@@ -2,4 +2,4 @@
 
 mod encode;
 
-pub use encode::*;
+pub use encode::{encode,Encoder};
