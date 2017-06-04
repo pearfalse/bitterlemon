@@ -88,7 +88,6 @@ where S : Iterator<Item=u8> {
 				debug_assert!(*stage_size == 0); // shouldn't have pulled otherwise
 				*stage = next;
 				*stage_size = 8;
-				*remaining += 8;
 				// now fall through to real iteration logic
 				true
 			},
@@ -176,7 +175,7 @@ mod test_decoder {
 	macro_rules! decoder {
 		( $($e:expr),* ) => {
 			{
-				let v = vec![$( $e )*];
+				let v = vec![$( $e, )*];
 				super::decode(v.into_iter())
 			}
 		}
@@ -184,20 +183,20 @@ mod test_decoder {
 
 	#[test]
 	fn empty_input() {
-		let mut result = decoder![];
+		let mut iter = decoder![];
 
-		assert_eq!(result.next(), None);
-		assert_eq!(result.next(), None);
+		assert_eq!(iter.next(), None);
+		assert_eq!(iter.next(), None);
 	}
 
 	fn single_run_impl(top_bits: u8, mode: bool) {
 		for i in 0..0x3fu8 {
 			let run_size = super::byte_to_run_size(i);
-			let mut result = decoder![i+top_bits];
+			let mut iter = decoder![i+top_bits];
 			for _ in 0..run_size {
-				assert_eq!(result.next(), Some(Ok(mode)));
+				assert_eq!(iter.next(), Some(Ok(mode)));
 			}
-			assert_eq!(result.next(), None);
+			assert_eq!(iter.next(), None);
 		}
 	}
 
@@ -209,5 +208,44 @@ mod test_decoder {
 	#[test]
 	fn single_run_set() {
 		single_run_impl(0xc0, true)
+	}
+
+	#[test]
+	fn single_byte_frame() {
+		let case = |byte_in: u8, bool_out: bool| {
+			let mut iter = decoder![0x01, byte_in];
+			assert_eq!(iter.next(), Some(Ok(bool_out)));
+		};
+
+		case(0xff, true);
+		case(0x00, false);
+		case(0x80, true);
+		case(0x7f, false);
+	}
+
+	#[test]
+	fn full_byte_frame() {
+		let mut iter = decoder![0x08, 0x55];
+
+		let mut expected = false;
+		for _ in 0..8 {
+			assert_eq!(iter.next(), Some(Ok(expected)));
+			expected = !expected;
+		}
+
+		assert_eq!(iter.next(), None);
+	}
+
+	#[test]
+	fn two_byte_frame() {
+		let mut iter = decoder![0x0f, 0x55, 0x55];
+
+		let mut expected = false;
+		for _ in 0..15 {
+			assert_eq!(iter.next(), Some(Ok(expected)));
+			expected = !expected;
+		}
+
+		assert_eq!(iter.next(), None);
 	}
 }
