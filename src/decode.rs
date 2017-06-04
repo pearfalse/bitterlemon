@@ -17,10 +17,7 @@ pub struct Decoder<S> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-	TruncatedInput {
-		pixels_lost: u8,
-		bytes_missing: u8,
-	},
+	TruncatedInput(u8, u8),
 }
 
 type IterationResult = Result<bool, Error>;
@@ -72,10 +69,7 @@ where S : Iterator<Item=u8> {
 					debug_assert!(remaining > 0);
 
 					// missing bytes to complete the frame
-					let error_specifics = Error::TruncatedInput {
-						pixels_lost: remaining,
-						bytes_missing: (remaining + 7) >> 3,
-					};
+					let error_specifics = Error::TruncatedInput(remaining, (remaining + 7) >> 3);
 					return Some(Err(error_specifics));
 				}
 			}
@@ -247,5 +241,58 @@ mod test_decoder {
 		}
 
 		assert_eq!(iter.next(), None);
+	}
+
+	#[test]
+	fn alternate_runs_frames() {
+		let case = |bytes: &[u8], count: usize, first_output: bool| {
+			let mut iter = super::decode(bytes.iter().map(|&b| b));
+
+			let mut expected = first_output;
+			for _ in 0..count {
+				assert_eq!(iter.next(), Some(Ok(expected)));
+				expected = !expected;
+			}
+
+			assert_eq!(iter.next(), None);
+		};
+
+		case(&[0xc1, 0x10, 0x55, 0x55, 0x81], 18, true);
+		case(&[0x81, 0x10, 0xaa, 0xaa, 0xc1], 18, false);
+		case(&[0x08, 0xaa, 0xc1, 0x08, 0x55], 17, true);
+		case(&[0x08, 0x55, 0x81, 0x08, 0xaa], 17, false);
+	}
+
+	#[test]
+	fn error_on_frame_cutoff() {
+		let case = |bytes: &[u8], pixels_lost: u8, bytes_missing: u8| {
+			let mut iter = super::decode(bytes.iter().map(|&b| b));
+
+			let ok_count = (bytes.len() - 1) * 8;
+			for _ in 0..ok_count {
+				assert!(match iter.next() {
+					Some(Ok(_)) => true,
+					_ => false
+				});
+			}
+
+			let error = iter.next();
+			assert!(error.is_some());
+			let error = error.unwrap();
+
+			assert!(error.is_err());
+			match error.unwrap_err() {
+				super::Error::TruncatedInput(pl, bm) => {
+					assert_eq!(pl, pixels_lost);
+					assert_eq!(bm, bytes_missing);
+				}
+			};
+		};
+
+		case(&[0x01], 1, 1);
+		case(&[0x02], 2, 1);
+		case(&[0x00], 0x80, 0x10);
+		case(&[0x09, 0xff], 1, 1);
+		case(&[0x7f, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], 7, 1);
 	}
 }
