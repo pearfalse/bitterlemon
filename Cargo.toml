@@ -5,3 +5,4 @@ authors = ["Simon Harris <simon@pearfalse.com>"]
 
 [dependencies]
 arrayvec = ">= 0.3"
+random = ">= 0.12"
