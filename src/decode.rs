@@ -190,16 +190,24 @@ mod test_decoder {
 		assert_eq!(result.next(), None);
 	}
 
-	#[test]
-	fn single_run_set() {
+	fn single_run_impl(top_bits: u8, mode: bool) {
 		for i in 0..0x3fu8 {
 			let run_size = super::byte_to_run_size(i);
-			let mut result = decoder![i+0xc0];
+			let mut result = decoder![i+top_bits];
 			for _ in 0..run_size {
-				assert_eq!(result.next(), Some(Ok(true)));
+				assert_eq!(result.next(), Some(Ok(mode)));
 			}
 			assert_eq!(result.next(), None);
 		}
 	}
 
+	#[test]
+	fn single_run_clear() {
+		single_run_impl(0x80, false)
+	}
+
+	#[test]
+	fn single_run_set() {
+		single_run_impl(0xc0, true)
+	}
 }

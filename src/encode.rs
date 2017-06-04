@@ -2,6 +2,8 @@
 
 extern crate arrayvec;
 
+use std::fmt;
+
 pub fn encode<S>(source: S) -> Encoder<S>
 where S : Iterator<Item=bool> {
 	let runs_only = RunIterator::from_pixels(source);
@@ -29,6 +31,18 @@ enum Run {
 	Set(u8),
 	Clear(u8)
 }
+
+
+impl fmt::Display for Run {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.write_str(match *self {
+			Run::Set(_) => "S",
+			Run::Clear(_) => "C"
+		})?;
+		self.size().fmt(f)
+	}
+}
+
 
 impl Run {
 	fn size(&self) -> u8 { // TODO rename this to len for Rusticity
@@ -477,6 +491,9 @@ impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
 			// get next element, if there is one
 			if self.next_run.is_none() {
 				self.next_run = self.source.next();
+				if let Some(r) = self.next_run {
+					print!(" {}", r);
+				}
 			}
 
 			if self.next_run.is_none() {
