@@ -491,9 +491,6 @@ impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
 			// get next element, if there is one
 			if self.next_run.is_none() {
 				self.next_run = self.source.next();
-				if let Some(r) = self.next_run {
-					print!(" {}", r);
-				}
 			}
 
 			if self.next_run.is_none() {
