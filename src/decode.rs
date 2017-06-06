@@ -295,4 +295,16 @@ mod test_decoder {
 		case(&[0x09, 0xff], 1, 1);
 		case(&[0x7f, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], 7, 1);
 	}
+
+	#[test]
+	fn next_none_idempotence() {
+		let src = &[0xc1u8];
+		let mut iter = super::decode(src.iter().map(|&b| b));
+
+		assert!(iter.next().is_some());
+
+		for _ in 0..20 {
+			assert_eq!(iter.next(), None);
+		}
+	}
 }
