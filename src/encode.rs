@@ -1,9 +1,11 @@
-//! Handles encoding of a Bitterlemon image
+//! Handles encoding of a Bitterlemon image.
 
 extern crate arrayvec;
 
 use std::fmt;
 
+/// Encodes a given bit stream into a compact byte representation.
+/// `source` can be any iterator that yields `bool` values.
 pub fn encode<S>(source: S) -> Encoder<S>
 where S : Iterator<Item=bool> {
 	let runs_only = RunIterator::from_pixels(source);
@@ -13,6 +15,9 @@ where S : Iterator<Item=bool> {
 	}
 }
 
+/// The state for the encode process.
+///
+/// To perform an encoding, see [`encode`](#fn.encode).
 pub struct Encoder<S> {
 	encoder_impl: WithFrames<RunIterator<S>>,
 }

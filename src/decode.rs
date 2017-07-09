@@ -1,7 +1,18 @@
 //! Decodes a Bitterlemon-encoded byte stream into its original bit stream.
 
 use std::iter::Iterator;
+use std::result;
 
+/// Decodes a Bitterlemon byte stream into an iterator of `bool`s.
+/// `source` can be any iterator that yields `u8` values.
+///
+/// # Errors
+///
+/// Unlike encoding, decoding has a chance of failure. The exposed iterator
+/// will return a [`Result`] object to handle the possibility of an invalid
+/// input stream. The `Ok` value in this case is of type `bool`.
+///
+/// [`Result`]: type.Result.html
 pub fn decode<S>(input: S) -> Decoder<S>
 where S : Iterator<Item=u8> {
 	Decoder::<S> {
@@ -10,21 +21,30 @@ where S : Iterator<Item=u8> {
 	}
 }
 
+/// Manages the state for decoding a Bitterlemon byte stream.
+///
+/// To perform a decoding, see [`decode`](#fn.decode).
 pub struct Decoder<S> {
 	state: DecodeState,
 	source: S,
 }
 
+/// Describes errors that can occur when decoding a Bitterlemon byte stream.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
+	/// Input had too few bytes to cleanly decode. The associated values are:
+	///
+	/// * number of bits lost due to truncated input;
+	/// * number of bytes still expected from the input.
 	TruncatedInput(u8, u8),
 }
 
-type IterationResult = Result<bool, Error>;
+/// Decode operations yield this on each iteration.
+pub type Result = result::Result<bool, Error>;
 
 impl<S> Iterator for Decoder<S>
 where S : Iterator<Item=u8> {
-	type Item = IterationResult;
+	type Item = Result;
 
 	fn next(&mut self) -> Option<Self::Item> {
 
