@@ -1,6 +1,6 @@
 [package]
 name = "bitterlemon"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Simon Harris <simon@pearfalse.com>"]
 description = "An RLE-based encoder and decoder for bit streams."
 license = "MIT"
@@ -10,4 +10,6 @@ keywords = ["rle", "bitstream", "pack"]
 
 [dependencies]
 arrayvec = ">= 0.3"
+
+[dev-dependencies]
 random = ">= 0.12"
