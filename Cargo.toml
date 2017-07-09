@@ -2,6 +2,8 @@
 name = "bitterlemon"
 version = "0.1.0"
 authors = ["Simon Harris <simon@pearfalse.com>"]
+description = "An RLE-based encoder and decoder for bit streams."
+license = "MIT"
 
 [dependencies]
 arrayvec = ">= 0.3"
