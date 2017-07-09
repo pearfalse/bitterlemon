@@ -8,7 +8,7 @@ use std::fmt;
 /// `source` can be any iterator that yields `bool` values.
 pub fn encode<S>(source: S) -> Encoder<S>
 where S : Iterator<Item=bool> {
-	let runs_only = RunIterator::from_pixels(source);
+	let runs_only = RunIterator::from_bits(source);
 	let with_frames = WithFrames::new(runs_only);
 	Encoder {
 		encoder_impl: with_frames,
@@ -140,7 +140,7 @@ const RLE_MAX_FRAME: u8 = 128;
 
 impl<S: Iterator<Item=bool>> RunIterator<S> {
 
-	fn from_pixels(source: S) -> RunIterator<S> {
+	fn from_bits(source: S) -> RunIterator<S> {
 		RunIterator {
 			state: None,
 			source: source
@@ -240,7 +240,7 @@ mod test_run_builder {
 		let op = |input: &[u8], output: &[Run]| {
 
 			let bool_stream : Vec<bool> = input.iter().map(|&c| c == b'1').collect();
-			let collected : Vec<Run> = RunIterator::from_pixels(bool_stream.iter().map(|&b| b)).collect();
+			let collected : Vec<Run> = RunIterator::from_bits(bool_stream.iter().map(|&b| b)).collect();
 
 			assert_eq!(output, collected.as_slice());
 		};
@@ -267,7 +267,7 @@ mod test_run_builder {
 
 	#[test]
 	fn next_none_idempotence() {
-		let mut iter = RunIterator::from_pixels((&[] as &[bool]).iter().map(|&b| b));
+		let mut iter = RunIterator::from_bits((&[] as &[bool]).iter().map(|&b| b));
 		for i in 0..20 {
 			let next = iter.next();
 			assert_eq!(None, next, "pulling next() on run {} was {:?}, not None", i, next);
@@ -280,7 +280,7 @@ type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
 
 trait RunHoldingExtensions {
 	fn bytes_as_frame(&self) -> (u8, u8);
-	fn num_pixels(&self) -> u8;
+	fn num_bits(&self) -> u8;
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
 }
 
@@ -297,9 +297,9 @@ impl RunHoldingExtensions for RunHolding {
 		(bytes, padding)
 	}
 
-	fn num_pixels(&self) -> u8 {
+	fn num_bits(&self) -> u8 {
 		let r : usize = self.iter().map(|r| r.size() as usize).sum();
-		debug_assert!(r <= RLE_MAX_FRAME as usize, "number of frame pixels too high at {:?}", r);
+		debug_assert!(r <= RLE_MAX_FRAME as usize, "number of frame bits too high at {:?}", r);
 		r as u8
 	}
 
@@ -394,7 +394,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 		let run_size = self.next_run.unwrap().size();
 
 		// would the frame get too large?
-		let cur_frame_size = self.runs.num_pixels() as u16;
+		let cur_frame_size = self.runs.num_bits() as u16;
 		if cur_frame_size + (run_size as u16) > (RLE_MAX_FRAME as u16) { return false; }
 
 		// let's get some clear cases out of the way first
@@ -426,7 +426,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
-					let header_byte = self.runs.num_pixels();
+					let header_byte = self.runs.num_bits();
 					(
 						Some(if header_byte == RLE_MAX_FRAME {0u8} else {header_byte}),
 						Some(WithFramesMode::FlushingFrame(0, frame_size))

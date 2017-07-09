@@ -122,7 +122,7 @@ where S : Iterator<Item=u8> {
 				let frame_size = byte_to_run_size(n);
 				let mode = n >= 0xc0;
 				self.state = if frame_size > 1 {
-					// don't bother moving to run state if only one pixel in this run
+					// don't bother moving to run state if only one bit in this run
 					// also, leaving this method in state Run(0, _) is a logic error
 					DecodeState::Run(frame_size - 1, mode)
 				}
@@ -179,7 +179,7 @@ fn byte_to_frame_size(byte: u8) -> u8 {
 enum DecodeState {
 	Pending, // should pull
 	Run(u8, bool), // run count, is_set
-	Frame(u8, u8, u8), // frame pixel count, stage contents, stage size
+	Frame(u8, u8, u8), // frame bit count, stage contents, stage size
 	Done, // iteration complete
 }
 
@@ -285,7 +285,7 @@ mod test_decoder {
 
 	#[test]
 	fn error_on_frame_cutoff() {
-		let case = |bytes: &[u8], pixels_lost: u8, bytes_missing: u8| {
+		let case = |bytes: &[u8], bits_lost: u8, bytes_missing: u8| {
 			let mut iter = super::decode(bytes.iter().map(|&b| b));
 
 			let ok_count = (bytes.len() - 1) * 8;
@@ -303,7 +303,7 @@ mod test_decoder {
 			assert!(error.is_err());
 			match error.unwrap_err() {
 				super::Error::TruncatedInput(pl, bm) => {
-					assert_eq!(pl, pixels_lost);
+					assert_eq!(pl, bits_lost);
 					assert_eq!(bm, bytes_missing);
 				}
 			};
