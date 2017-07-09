@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Simon Harris <simon@pearfalse.com>"]
 description = "An RLE-based encoder and decoder for bit streams."
 license = "MIT"
+repository = "https://github.com/pearfalse/bitterlemon"
+categories = ["compression"]
+keywords = ["rle", "bitstream", "pack"]
 
 [dependencies]
 arrayvec = ">= 0.3"
