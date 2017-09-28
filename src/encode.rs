@@ -595,8 +595,8 @@ mod test_with_frames {
 	fn abandon_frame_on_long_runs() {
 
 		case(&[Run::Clear(1), Run::Set(2), Run::Clear(16)], &[0x03, 0x60, 0x90]);
-		case(&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
-			&[0x94, 0x02, 0x80, 0xd4]);
+		case(&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)], &[0x94, 0x02, 0x80, 0xd4]);
+		case(&[Run::Set(1), Run::Clear(1), Run::Set(1), Run::Clear(1), Run::Set(64), Run::Set(4)], &[0x04, 0xa0, 0xc0, 0xc4]);
 	}
 
 	#[test]
