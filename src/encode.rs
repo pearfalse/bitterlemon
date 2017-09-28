@@ -327,7 +327,7 @@ mod run_holding_extensions {
 		let mut builder = RunHolding::new();
 
 		for element in input {
-			assert_eq!(None, builder.push(element.clone()));
+			builder.push(element.clone());
 		}
 
 		assert_eq!(frame_size, builder.bytes_as_frame().0);

@@ -9,7 +9,7 @@ categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
 
 [dependencies]
-arrayvec = ">= 0.3"
+arrayvec = ">= 0.4"
 
 [dev-dependencies]
 random = ">= 0.12"
