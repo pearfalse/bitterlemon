@@ -1,6 +1,6 @@
 # bitterlemon
 
-Bitterlemon is a data format and Rust library crate to efficiently store bit sequences in byte streams using run-length encoding (RLE). Bitterlemon will pack contiguous bit runs into compact RLE representations where it can, and fall back to standard byte packing where RLE can't improve the compression factor.
+Bitterlemon is a data format and Rust library crate to efficiently store bit sequences in byte streams using run-length encoding (RLE). Bitterlemon will pack contiguous bit runs into compact RLE representations where it can, and fall back to standard byte packing where RLE can't improve the compression factor. There are no limits or compression performance penalties related to input or output size.
 
 ## Usage
 
@@ -39,18 +39,4 @@ The number of bytes needed to encode a frame can be worked out as follows:
 
 ### Implementation details
 
-The reference encoder first converts the input bit stream to a series of runs, each 1 to 64 bits in length. There is then a second pass that replaces some of these runs with frames, where it would take fewer bytes to do so.
-
-There is a very specific combination of input bits that make the encoder output one more byte than the theoretical best case. When a frame that isn't a multiple of 8 is followed by a run of the opposite value, whose original length is greater than 64 + the number of frame padding bits, the runs are output on their original alignment. So
-
-	01010101 01010101 01010101 0 [1 × 71]
-
-will get encoded as
-
-	19 55 55 00 f9 c7    ← 25-bit frame, 64-bit set run, 7-bit set run
-
-instead of the optimal form
-
-	20 55 55 7f c0    ← 32-bit frame (incl. the first 7 of the 71 × 1s), 64-bit set run
-
-This is a known issue and will be fixed if it turns out to be a more common case than it looks. It's harder than it might seem to realign runs this way, and would add a lot of complexity to the encoder, all to save one byte.
+The reference encoder first converts the input bit stream to a series of runs, each 1 to 64 bits in length. There is then a second pass that replaces some of these runs with frames, where it would take fewer bytes to do so. This may not give the theoretical maximum compression in all cases, but provides near-maximal efficiency for most cases without vastly increasing the complexity of the encoder. If there is a need to encode a specific subset of data a certain way, you can encode segments separately and concatenate their Bitterlemon byte streams together.

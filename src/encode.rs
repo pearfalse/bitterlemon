@@ -1,4 +1,4 @@
-//! Handles encoding of a Bitterlemon image.
+//! Handles encoding of a Bitterlemon data stream.
 
 extern crate arrayvec;
 
