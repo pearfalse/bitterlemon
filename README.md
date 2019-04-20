@@ -39,4 +39,4 @@ The number of bytes needed to encode a frame can be worked out as follows:
 
 ### Implementation details
 
-The reference encoder first converts the input bit stream to a series of runs, each 1 to 64 bits in length. There is then a second pass that replaces some of these runs with frames, where it would take fewer bytes to do so. This may not give the theoretical maximum compression in all cases, but provides near-maximal efficiency for most cases without vastly increasing the complexity of the encoder. If there is a need to encode a specific subset of data a certain way, you can encode segments separately and concatenate their Bitterlemon byte streams together.
+The reference encoder first converts the input bit stream to a series of runs, each 1 to 64 bits in length. There is then a second pass that replaces some of these runs with frames, where it would take fewer bytes to do so.
