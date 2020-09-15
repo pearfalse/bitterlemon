@@ -1,12 +1,12 @@
 //! Encodes a boolean stream, then decodes it, checking that the output matches the input
 
-extern crate arrayvec;
-extern crate random;
+use arrayvec;
+use random::Source;
 
-use test_encode_round_trip::random::Source;
-
-use encode;
-use decode;
+use crate::{
+	encode,
+	decode,
+};
 
 fn from_digits(s: &'static [u8]) -> Vec<bool> {
 	s.iter().map(|&c| c == b'1').collect()
