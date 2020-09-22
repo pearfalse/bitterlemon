@@ -239,7 +239,7 @@ mod test_run_builder {
 }
 
 
-type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
+type RunHolding = arrayvec::ArrayVec<[Run; RLE_MAX_FRAME as usize]>;
 
 trait RunHoldingExtensions {
 	fn bit_count(&self) -> u16;
