@@ -2,6 +2,8 @@
 
 use arrayvec;
 
+use std::iter::FusedIterator;
+
 /// Encodes a given bit stream into a compact byte representation.
 /// `source` can be any iterator that yields `bool` values.
 pub fn encode<S: Iterator<Item = bool>>(source: S) -> Encoder<S> {
@@ -27,6 +29,8 @@ impl<S: Iterator<Item = bool>> Iterator for Encoder<S> {
 		self.encoder_impl.next()
 	}
 }
+
+impl<S: Iterator<Item = bool>> FusedIterator for Encoder<S> { }
 
 /// Represents a single run.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -188,7 +192,7 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 	}
 }
 
-impl<S: Iterator<Item = bool>> std::iter::FusedIterator for RunIterator<S> { }
+impl<S: Iterator<Item = bool>> FusedIterator for RunIterator<S> { }
 
 #[cfg(test)]
 mod test_run_builder {
@@ -494,6 +498,8 @@ impl<S: Iterator<Item = Run>> Iterator for WithFrames<S> {
 	}
 }
 
+impl<S: Iterator<Item = Run>> FusedIterator for WithFrames<S> { }
+
 #[cfg(test)]
 mod test_with_frames {
 	use super::*;
@@ -515,7 +521,7 @@ mod test_with_frames {
 	}
 
 	#[test]
-	fn next_none_idempotence() {
+	fn fused_check() {
 		let mut iter = WithFrames::new((&[] as &[Run]).iter().map(|&b| b));
 		for i in 0..20 {
 			let next = iter.next();
