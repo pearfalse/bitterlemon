@@ -245,7 +245,8 @@ trait RunHoldingExtensions {
 	fn bit_count(&self) -> u16;
 	fn padding(&self) -> u8;
 	fn num_bits(&self) -> u8;
-	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
+	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<u8>;
+	fn try_pop_single(&mut self) -> Option<Run>;
 }
 
 impl RunHoldingExtensions for RunHolding {
@@ -266,8 +267,8 @@ impl RunHoldingExtensions for RunHolding {
 		r as u8
 	}
 
-	fn unshift_bit(&mut self, ptr: &mut u8) -> u8 {
-		let head_run = self.get_mut(*ptr as usize).unwrap();
+	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<u8> {
+		let head_run = &mut self.get_mut(*ptr as usize)?;
 		let r = head_run.bit();
 
 		let head_size = head_run.len_mut();
@@ -276,7 +277,19 @@ impl RunHoldingExtensions for RunHolding {
 			*ptr += 1;
 		}
 
-		r
+		Some(r)
+	}
+
+	fn try_pop_single(&mut self) -> Option<Run> {
+		if self.len() == 1 {
+			match self.pop() {
+				x @ Some(_) => x,
+				None => unsafe {
+					// arrayvec len is 1, so this is guaranteed to never occur
+					std::hint::unreachable_unchecked()
+				}
+			}
+		} else { None }
 	}
 }
 
@@ -384,11 +397,10 @@ impl<S: Iterator<Item = Run>> WithFrames<S> {
 	fn next_continue_purge(&mut self) -> Option<<Self as Iterator>::Item> {
 		let (to_return, next_mode) : (Option<u8>, Option<WithFramesMode>) = match self.mode {
 			WithFramesMode::Filling => {
-				if self.runs.len() == 1 {
+				if let Some(single) = self.runs.try_pop_single() {
 					// special case: told to abandon a one-run frame
 					// should just output the run instead
-					let moved_run = self.runs.pop().unwrap();
-					(Some(moved_run.into()), None /* keep Filling */)
+					(Some(single.into()), None /* keep Filling */)
 				}
 				else if ! self.runs.is_empty() {
 					// return header for new frame to output
@@ -419,14 +431,11 @@ impl<S: Iterator<Item = Run>> WithFrames<S> {
 				let mut byte = 0u8;
 				let mut mask = 7;
 				for _ in 0..8 {
-
-					byte |= self.runs.unshift_bit(ptr) << mask;
-					mask -= 1;
-
-					if ptr == size {
-						// run exhausted
-						break;
+					match self.runs.unshift_bit(ptr) {
+						Some(bit) => byte |= bit << mask,
+						None => break,
 					}
+					mask -= 1;
 				}
 
 				let next_mode = if ptr == size {
