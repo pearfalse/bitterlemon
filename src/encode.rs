@@ -92,17 +92,17 @@ mod test_runs {
 	}
 }
 
-impl Into<u8> for Run {
-	fn into(self) -> u8 {
+impl From<Run> for u8 {
+	fn from(src: Run) -> u8 {
 
-		let high_bits: u8 = match self {
+		let high_bits: u8 = match src {
 			Run::Set  (_) => 0xc0,
 			Run::Clear(_) => 0x80,
 		};
 
-		let run_size_encoded: u8 = match self.len() {
+		let run_size_encoded: u8 = match src.len() {
 			RLE_MAX_RUN => 0, // encode max run len as 0
-			n if n > RLE_MAX_RUN => unreachable!("run too long: {:?}", self),
+			n if n > RLE_MAX_RUN => unreachable!("run too long: {:?}", src),
 			other => other, // all valid non-0 values encode as themselves
 		};
 
@@ -242,27 +242,25 @@ mod test_run_builder {
 type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
 
 trait RunHoldingExtensions {
-	fn bytes_as_frame(&self) -> (u8, u8);
+	fn padding(&self) -> u8;
 	fn num_bits(&self) -> u8;
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
 }
 
 impl RunHoldingExtensions for RunHolding {
-	fn bytes_as_frame(&self) -> (u8, u8) {
-		let total_bits: usize = self.iter().map(|&run| match run {
-			Run::Set(x) => x as usize,
-			Run::Clear(x) => x as usize,
-		}).sum();
+	fn padding(&self) -> u8 {
+		let total_bits =
+			self.iter().map(|r| r.len() as u16).sum::<u16>();
 
-		let total_bits = total_bits + 8; // for the header
-		let bytes = ((total_bits + 7) >> 3) as u8;
-		let padding = (total_bits & 7) as u8;
-		(bytes, padding)
+		match total_bits as u8 & 7 {
+			0 => 0,
+			n => 8 - n,
+		}
 	}
 
 	fn num_bits(&self) -> u8 {
-		let r : usize = self.iter().map(|r| r.len() as usize).sum();
-		debug_assert!(r <= RLE_MAX_FRAME as usize, "number of frame bits too high at {:?}", r);
+		let r = self.iter().map(|r| r.len() as u16).sum::<u16>();
+		debug_assert!(r <= RLE_MAX_FRAME as u16, "number of frame bits too high at {:?}", r);
 		r as u8
 	}
 
@@ -289,11 +287,10 @@ mod run_holding_extensions {
 	fn op(input: &[Run], frame_size: u8, run_size: u16) {
 		let mut builder = RunHolding::new();
 
-		for element in input {
-			builder.push(element.clone());
+		for &element in input {
+			builder.push(element);
 		}
 
-		assert_eq!(frame_size, builder.bytes_as_frame().0);
 		assert_eq!(run_size, builder.len() as u16);
 	}
 
@@ -337,7 +334,7 @@ enum WithFramesMode {
 	FlushingFrame(u8, u8), // ptr, length
 }
 
-impl<S: Iterator<Item=Run>> WithFrames<S> {
+impl<S: Iterator<Item = Run>> WithFrames<S> {
 	fn new(source: S) -> WithFrames<S> {
 		WithFrames {
 			runs: RunHolding::new(),
@@ -347,32 +344,37 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 		}
 	}
 
-	fn next_should_expand_frame(&mut self) -> bool {
+	fn next_should_expand_frame(&mut self, next_run: Run) -> bool {
 		// never expand a frame we're flushing
 		if matches!(self.mode, WithFramesMode::FlushingFrame(_, _)) {
 			return false;
 		}
 
-		let run_size = self.next_run.unwrap().len();
+		let run_size = next_run.len();
 
 		// would the frame get too large?
 		let cur_frame_size = self.runs.num_bits() as u16;
-		if cur_frame_size + (run_size as u16) > (RLE_MAX_FRAME as u16) { return false; }
+		if cur_frame_size + (run_size as u16) > (RLE_MAX_FRAME as u16) {
+			return false;
+		}
 
-		// let's get some clear cases out of the way first
-		if run_size < 8 { return true; }
-		if run_size >= 16 { return false; }
+		// a frame -> run switch adds between 8 and 15 bits
+		// (<= 7 bits frame padding, 8 bits for run)
+		if run_size < 8 {
+			// never more efficient to close frame
+			return true;
+		}
+		if run_size >= 16 {
+			// a frame can't keep up with that
+			return false;
+		}
 
-
-		let (_, padding) = self.runs.bytes_as_frame();
-		// only add to the frame if the frame size increase is < 2 bytes
-		// IOW, run size - frame padding < 16 bits
-		run_size - padding < 16
-	}
-
-	fn next_add_to_frame(&mut self)  {
-		let next_run = self.next_run.take().unwrap();
-		self.runs.push(next_run);
+		// there are two options:
+		// - pad the frame and output a run (cost: padding + 8)
+		// - add to the frame (cost: run size)
+		// when equal, add to frame -- mitigate pathological cases where consistently
+		// opened after balanced runs close them
+		self.runs.padding() + 8 >= run_size
 	}
 
 	fn next_continue_purge(&mut self) -> Option<<Self as Iterator>::Item> {
@@ -384,7 +386,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 					let moved_run = self.runs.pop().unwrap();
 					(Some(moved_run.into()), None /* keep Filling */)
 				}
-				else if self.runs.len() > 0 {
+				else if ! self.runs.is_empty() {
 					// return header for new frame to output
 					// and prime next mode to be WithFramesMode::FlushingFrame
 					let frame_size = self.runs.len() as u8;
@@ -394,10 +396,10 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 						Some(WithFramesMode::FlushingFrame(0, frame_size))
 					)
 				}
-				else if self.next_run.is_some() {
+				else if let Some(moved_run) = self.next_run {
 					// expecting to fill a frame, but was told not to do it here
 					// move the run out instead
-					let moved_run = self.next_run.take().unwrap();
+					self.next_run = None;
 					(Some(moved_run.into()), None)
 				}
 				else {
@@ -406,6 +408,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 				}
 			},
 			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
+				dbg!((*ptr, *size));
 				// mid-frame
 
 				// drain run to fill a byte
@@ -438,7 +441,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 	}
 }
 
-impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
+impl<S: Iterator<Item = Run>> Iterator for WithFrames<S> {
 	type Item = u8;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -456,21 +459,25 @@ impl<S: Iterator<Item=Run>> Iterator for WithFrames<S> {
 
 		loop {
 			// get next element, if there is one
-			if self.next_run.is_none() {
-				self.next_run = self.source.next();
-			}
+			let next_run = {
+				if self.next_run.is_none() {
+					self.next_run = self.source.next();
+				}
 
-			if self.next_run.is_none() {
-				return self.next_continue_purge();
-			}
+				match self.next_run {
+					Some(r) => r,
+					None => break,
+				}
+			};
 
-			if self.next_should_expand_frame() {
-				self.next_add_to_frame();
+			if self.next_should_expand_frame(next_run) {
+				self.runs.push(next_run);
+				self.next_run = None;
 				continue;
 			}
-
-			return self.next_continue_purge();
+			break
 		}
+		self.next_continue_purge()
 	}
 }
 
