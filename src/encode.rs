@@ -242,17 +242,19 @@ mod test_run_builder {
 type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
 
 trait RunHoldingExtensions {
+	fn bit_count(&self) -> u16;
 	fn padding(&self) -> u8;
 	fn num_bits(&self) -> u8;
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8;
 }
 
 impl RunHoldingExtensions for RunHolding {
-	fn padding(&self) -> u8 {
-		let total_bits =
-			self.iter().map(|r| r.len() as u16).sum::<u16>();
+	fn bit_count(&self) -> u16 {
+		self.iter().map(|r| r.len() as u16).sum::<u16>()
+	}
 
-		match total_bits as u8 & 7 {
+	fn padding(&self) -> u8 {
+		match self.bit_count() as u8 & 7 {
 			0 => 0,
 			n => 8 - n,
 		}
@@ -291,12 +293,14 @@ mod run_holding_extensions {
 			builder.push(element);
 		}
 
-		assert_eq!(run_size, builder.len() as u16);
-	}
+		let actual_frame_size = (builder.bit_count() // bit count
+			+ 7) // round up
+			/ 8 // bits to bytes
+			+ 1 // add header
+			;
 
-	#[test]
-	fn empty() {
-		op(&[], 1, 0);
+		assert_eq!(frame_size as u16, actual_frame_size);
+		assert_eq!(run_size, builder.len() as u16);
 	}
 
 	#[test]
