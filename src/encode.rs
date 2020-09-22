@@ -95,21 +95,18 @@ mod test_runs {
 impl Into<u8> for Run {
 	fn into(self) -> u8 {
 
-		use self::Run::*;
+		let high_bits: u8 = match self {
+			Run::Set  (_) => 0xc0,
+			Run::Clear(_) => 0x80,
+		};
 
-		match self {
-			Set(n)   => {
-				assert!(n <= RLE_MAX_RUN);
-				let n_out = if n == RLE_MAX_RUN {0u8} else {n};
-				0xc0u8 + n_out
-			},
-			Clear(n) => {
-				assert!(n <= RLE_MAX_RUN);
-				let n_out = if n == RLE_MAX_RUN {0u8} else {n};
-				0x80u8 + n_out
-			},
-		}
+		let run_size_encoded: u8 = match self.len() {
+			RLE_MAX_RUN => 0, // encode max run len as 0
+			n if n > RLE_MAX_RUN => unreachable!("run too long: {:?}", self),
+			other => other, // all valid non-0 values encode as themselves
+		};
 
+		high_bits | run_size_encoded
 	}
 }
 
@@ -144,78 +141,54 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 
 	fn next(&mut self) -> Option<Run> {
 		use self::Run::*;
-		loop {
+		use std::mem::replace;
 
+		fn inc(run: &mut Run) {
+			let len = run.len_mut();
+			*len = len.wrapping_add(1);
+			debug_assert!(*len <= RLE_MAX_RUN);
+		}
+
+		loop {
 			// Grab next bit from source; early return if None upstream
 			let pp = match self.source.next() {
 				Some(b) => b,
-				None    => return match self.state {
-					Some(x) => {
-						// Push out current state and clear for next time
-						let old = x;
-						self.state = None;
-						Some(old)
-					},
-					// All done
-					None => None
-				}
+				None => return replace(&mut self.state, None)
 			};
 
 			match self.state {
-
 				// Can't fit any more in this run
-				Some(Set(RLE_MAX_RUN)) => {
+				Some(r) if r.len() == RLE_MAX_RUN => {
 					self.state = Some(rle_new_run(pp));
-					return Some(Set(RLE_MAX_RUN));
+					return Some(r);
 				},
-
-				// Can't fit any more in this run
-				Some(Clear(RLE_MAX_RUN)) => {
-					self.state = Some(rle_new_run(pp));
-					return Some(Clear(RLE_MAX_RUN));
-				}
 
 				// Increase existing Set run
-				Some(Set(count)) if pp => {
-					self.state = Some(Set(count + 1));
-					continue;
-				},
-
-				// Swap from Set to Clear
-				Some(Set(_)) if ! pp => {
-					let old = self.state;
-					self.state = Some(Clear(1));
-					return old;
-				},
+				Some(ref mut run @ Set(_)) if pp
+					=> inc(run),
 
 				// Increase existing Clear run
-				Some(Clear(count)) if ! pp => {
-					self.state = Some(Clear(count + 1));
-					continue;
-				},
+				Some(ref mut run @ Clear(_)) if !pp
+					=> inc(run),
+
+				// Swap from Set to Clear
+				Some(Set(_)) if ! pp
+					=> return replace(&mut self.state, Some(Clear(1))),
 
 				// Swap from Clear to Set
-				Some(Clear(_)) if pp => {
-					let old = self.state;
-					self.state = Some(Set(1));
-					return old;
-				},
+				Some(Clear(_)) if pp
+					=> return replace(&mut self.state, Some(Set(1))),
 
 				// All cases covered, but can't convince rustc
-				Some(_) => {
-					unreachable!();
-				}
+				Some(_) => unreachable!("missing Some(Run) case"),
 
-				None => {
-					self.state = Some(rle_new_run(pp));
-					continue;
-				}
+				None => self.state = Some(rle_new_run(pp)),
 			}
-
 		}
-
 	}
 }
+
+impl<S: Iterator<Item = bool>> std::iter::FusedIterator for RunIterator<S> { }
 
 #[cfg(test)]
 mod test_run_builder {
@@ -256,7 +229,7 @@ mod test_run_builder {
 	}
 
 	#[test]
-	fn next_none_idempotence() {
+	fn fused_check() {
 		let mut iter = RunIterator::from_bits((&[] as &[bool]).iter().map(|&b| b));
 		for i in 0..20 {
 			let next = iter.next();
