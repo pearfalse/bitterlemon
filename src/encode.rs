@@ -1,13 +1,10 @@
 //! Handles encoding of a Bitterlemon data stream.
 
-extern crate arrayvec;
-
-use std::fmt;
+use arrayvec;
 
 /// Encodes a given bit stream into a compact byte representation.
 /// `source` can be any iterator that yields `bool` values.
-pub fn encode<S>(source: S) -> Encoder<S>
-where S : Iterator<Item=bool> {
+pub fn encode<S: Iterator<Item = bool>>(source: S) -> Encoder<S> {
 	let runs_only = RunIterator::from_bits(source);
 	let with_frames = WithFrames::new(runs_only);
 	Encoder {
@@ -15,49 +12,40 @@ where S : Iterator<Item=bool> {
 	}
 }
 
-/// The state for the encode process.
+/// The state for the encode process. This is an iterator that yields encoded bytes as `u8`.
 ///
-/// To perform an encoding, see [`encode`](#fn.encode).
+/// To perform an encoding, see [`encode`](fn.encode.html).
+// Implemented as a naïve run generator, followed by a frame re-pack scanner
 pub struct Encoder<S> {
 	encoder_impl: WithFrames<RunIterator<S>>,
 }
 
-impl<S> Iterator for Encoder<S>
-where S : Iterator<Item=bool> {
+impl<S: Iterator<Item = bool>> Iterator for Encoder<S> {
 	type Item = u8;
-	#[inline]
+
 	fn next(&mut self) -> Option<Self::Item> {
 		self.encoder_impl.next()
 	}
 }
 
+/// Represents a single run.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Run {
+	/// Run is of `1`-valued bits
 	Set(u8),
+	/// Run is of `0`-valued bits
 	Clear(u8)
 }
 
-
-impl fmt::Display for Run {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		f.write_str(match *self {
-			Run::Set(_) => "S",
-			Run::Clear(_) => "C"
-		})?;
-		self.size().fmt(f)
-	}
-}
-
-
 impl Run {
-	fn size(&self) -> u8 { // TODO rename this to len for Rusticity
+	fn len(&self) -> u8 {
 		match *self {
 			Run::Set(x) => x,
 			Run::Clear(x) => x,
 		}
 	}
 
-	fn size_mut(&mut self) -> &mut u8 {
+	fn len_mut(&mut self) -> &mut u8 {
 		match *self {
 			Run::Set(ref mut x) => x,
 			Run::Clear(ref mut x) => x,
@@ -78,21 +66,21 @@ mod test_runs {
 	use super::Run::*;
 
 	#[test]
-	fn size() {
-		assert_eq!(50, Set(50).size());
-		assert_eq!(50, Clear(50).size());
-		assert_eq!(Set(50).size(), Clear(50).size());
+	fn len() {
+		assert_eq!(50, Set(50).len());
+		assert_eq!(50, Clear(50).len());
+		assert_eq!(Set(23).len(), Clear(23).len());
 	}
 
 	#[test]
-	fn size_mut() {
+	fn len_mut() {
 		macro_rules! implement {
 			($e:ident) => (
 				let mut run = super::Run::$e(20);
-				assert_eq!(20, *run.size_mut());
+				assert_eq!(20, *run.len_mut());
 
 				{
-					let r = run.size_mut();
+					let r = run.len_mut();
 					*r += 2;
 				}
 				assert_eq!($e(22), run);
@@ -132,14 +120,17 @@ struct RunIterator<S> {
 }
 
 fn rle_new_run(pp: bool) -> Run {
-	if pp {Run::Set(1)} else {Run::Clear(1)}
+	if pp {
+		Run::Set(1)
+	} else {
+		Run::Clear(1)
+	}
 }
 
 const RLE_MAX_RUN: u8 = 64;
 const RLE_MAX_FRAME: u8 = 128;
 
-impl<S: Iterator<Item=bool>> RunIterator<S> {
-
+impl<S: Iterator<Item = bool>> RunIterator<S> {
 	fn from_bits(source: S) -> RunIterator<S> {
 		RunIterator {
 			state: None,
@@ -236,7 +227,6 @@ mod test_run_builder {
 
 	#[test]
 	fn runs() {
-
 		let op = |input: &[u8], output: &[Run]| {
 
 			let bool_stream : Vec<bool> = input.iter().map(|&c| c == b'1').collect();
@@ -298,7 +288,7 @@ impl RunHoldingExtensions for RunHolding {
 	}
 
 	fn num_bits(&self) -> u8 {
-		let r : usize = self.iter().map(|r| r.size() as usize).sum();
+		let r : usize = self.iter().map(|r| r.len() as usize).sum();
 		debug_assert!(r <= RLE_MAX_FRAME as usize, "number of frame bits too high at {:?}", r);
 		r as u8
 	}
@@ -307,7 +297,7 @@ impl RunHoldingExtensions for RunHolding {
 		let head_run = self.get_mut(*ptr as usize).unwrap();
 		let r = head_run.bit();
 
-		let head_size = head_run.size_mut();
+		let head_size = head_run.len_mut();
 		*head_size -= 1;
 		if *head_size == 0 {
 			*ptr += 1;
@@ -390,7 +380,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 			return false;
 		}
 
-		let run_size = self.next_run.unwrap().size();
+		let run_size = self.next_run.unwrap().len();
 
 		// would the frame get too large?
 		let cur_frame_size = self.runs.num_bits() as u16;
