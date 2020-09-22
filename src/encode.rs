@@ -57,7 +57,7 @@ impl Run {
 		}
 	}
 
-	fn size_mut<'a>(&'a mut self) -> &'a mut u8 {
+	fn size_mut(&mut self) -> &mut u8 {
 		match *self {
 			Run::Set(ref mut x) => x,
 			Run::Clear(ref mut x) => x,
@@ -143,7 +143,7 @@ impl<S: Iterator<Item=bool>> RunIterator<S> {
 	fn from_bits(source: S) -> RunIterator<S> {
 		RunIterator {
 			state: None,
-			source: source
+			source,
 		}
 	}
 }
@@ -304,7 +304,7 @@ impl RunHoldingExtensions for RunHolding {
 	}
 
 	fn unshift_bit(&mut self, ptr: &mut u8) -> u8 {
-		let mut head_run = self.get_mut(*ptr as usize).unwrap();
+		let head_run = self.get_mut(*ptr as usize).unwrap();
 		let r = head_run.bit();
 
 		let head_size = head_run.size_mut();
@@ -379,16 +379,15 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 		WithFrames {
 			runs: RunHolding::new(),
 			mode: WithFramesMode::Filling,
-			source: source,
+			source,
 			next_run: None,
 		}
 	}
 
 	fn next_should_expand_frame(&mut self) -> bool {
 		// never expand a frame we're flushing
-		match self.mode {
-			WithFramesMode::FlushingFrame(_, _) => { return false; },
-			_ => {}
+		if matches!(self.mode, WithFramesMode::FlushingFrame(_, _)) {
+			return false;
 		}
 
 		let run_size = self.next_run.unwrap().size();
@@ -432,7 +431,7 @@ impl<S: Iterator<Item=Run>> WithFrames<S> {
 						Some(WithFramesMode::FlushingFrame(0, frame_size))
 					)
 				}
-				else if let Some(_) = self.next_run {
+				else if self.next_run.is_some() {
 					// expecting to fill a frame, but was told not to do it here
 					// move the run out instead
 					let moved_run = self.next_run.take().unwrap();
