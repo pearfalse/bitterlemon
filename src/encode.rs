@@ -422,7 +422,6 @@ impl<S: Iterator<Item = Run>> WithFrames<S> {
 				}
 			},
 			WithFramesMode::FlushingFrame(ref mut ptr, ref size) => {
-				dbg!((*ptr, *size));
 				// mid-frame
 
 				// drain run to fill a byte
