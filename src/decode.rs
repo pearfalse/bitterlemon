@@ -1,7 +1,6 @@
 //! Decodes a Bitterlemon-encoded byte stream into its original bit stream.
 
 use std::iter::Iterator;
-use std::result;
 
 /// Decodes a Bitterlemon byte stream into an iterator of `bool`s.
 /// `source` can be any iterator that yields `u8` values.
@@ -23,7 +22,7 @@ where S : Iterator<Item=u8> {
 
 /// Manages the state for decoding a Bitterlemon byte stream.
 ///
-/// To perform a decoding, see [`decode`](#fn.decode).
+/// To perform a decoding, see [`decode`](fn.decode).
 pub struct Decoder<S> {
 	state: DecodeState,
 	source: S,
@@ -36,18 +35,20 @@ pub enum Error {
 	///
 	/// * number of bits lost due to truncated input;
 	/// * number of bytes still expected from the input.
-	TruncatedInput(u8, u8),
+	TruncatedInput {
+		bits_lost: u8,
+		bytes_expected: u8,
+	},
 }
 
 /// Decode operations yield this on each iteration.
-pub type Result = result::Result<bool, Error>;
+pub type DecodeResult = Result<bool, Error>;
 
 impl<S> Iterator for Decoder<S>
 where S : Iterator<Item=u8> {
-	type Item = Result;
+	type Item = DecodeResult;
 
 	fn next(&mut self) -> Option<Self::Item> {
-
 		// pull from source if needs be
 		if self.must_pull() {
 			let next = self.source.next();
@@ -58,56 +59,55 @@ where S : Iterator<Item=u8> {
 	}
 }
 
-impl<S> Decoder<S>
-where S : Iterator<Item=u8> {
-
+impl<S: Iterator<Item = u8>> Decoder<S> {
 	fn must_pull(&self) -> bool {
 		match self.state {
-			DecodeState::Pending => true,
-			DecodeState::Done => false,
-			DecodeState::Run(remaining, _) => remaining == 0,
-			DecodeState::Frame(remaining, _, stage_size) => remaining == 0 || stage_size == 0,
+			DecodeState::Pending
+				=> true,
+			DecodeState::Done
+				=> false,
+			DecodeState::Run(remaining, _)
+				=> remaining == 0,
+			DecodeState::Frame(remaining, _, stage_size)
+				=> remaining == 0 || stage_size == 0,
 		}
 	}
 
 	fn next_with_pulled(&mut self, next: Option<u8>) -> Option<<Self as Iterator>::Item> {
-
 		// handle None from source
 		let next = match next {
 			Some(x) => x,
-			None => match self.state {
+			None => return match self.state {
 				DecodeState::Pending => {
 					self.state = DecodeState::Done;
-					return None;
+					None
 				}, // source was empty
-				DecodeState::Done    => { return None; }, // always return None here
-				DecodeState::Run(_, _) => {
-					unreachable!("next_with_pulled called with more run bits to flush: {:?}", self.state);
-				},
+				DecodeState::Done => None,
+				DecodeState::Run(_, _) => unreachable!(
+					"next_with_pulled called with more run bits to flush: {:?}", self.state),
 				DecodeState::Frame(remaining, _, stage_size) => {
 					debug_assert!(stage_size == 0);
 					debug_assert!(remaining > 0);
 
 					// missing bytes to complete the frame
-					let error_specifics = Error::TruncatedInput(remaining, (remaining + 7) >> 3);
-					return Some(Err(error_specifics));
-				}
+					Some(Err(Error::TruncatedInput {
+						bits_lost: remaining,
+						bytes_expected: (remaining + 7) >> 3,
+					}))
+				},
 			}
 		};
 
 		// handle mid-frame
-		if match self.state {
-			DecodeState::Frame(ref mut remaining, ref mut stage, ref mut stage_size)
-			if *remaining > 0 => {
+		if let DecodeState::Frame(ref mut remaining, ref mut stage, ref mut stage_size)
+		= self.state {
+			if *remaining > 0 {
 				debug_assert!(*stage_size == 0); // shouldn't have pulled otherwise
 				*stage = next;
 				*stage_size = 8;
 				// now fall through to real iteration logic
-				true
-			},
-			_ => false
-		} {
-			return self.next_from_existing();
+				return self.next_from_existing();
+			}
 		}
 
 		let got = match next {
@@ -140,23 +140,32 @@ where S : Iterator<Item=u8> {
 	}
 
 	fn next_from_existing(&mut self) -> Option<<Self as Iterator>::Item> {
-
 		let (to_return, next_state) = match self.state {
-			DecodeState::Pending => unreachable!(),
-			DecodeState::Done    => { return None; },
-			DecodeState::Run(ref mut remaining, ref run_mode) => {
+			DecodeState::Pending => unreachable!(
+				"called next_from_existing while in Pending state"),
+			DecodeState::Done => return None,
+			DecodeState::Run(ref mut remaining, run_mode) => {
 				*remaining -= 1;
-				(*run_mode, if *remaining == 0 {Some(DecodeState::Pending)} else {None})
+				(run_mode, if *remaining == 0 {
+					Some(DecodeState::Pending)
+				} else {
+					None
+				})
 			},
 			DecodeState::Frame(ref mut remaining, ref mut stage, ref mut stage_size) => {
 				let got_bit = (*stage & 0x80) != 0;
 				*stage = (*stage & 0x7f) << 1;
 				*stage_size -= 1;
 				*remaining -= 1;
-				(got_bit, if *remaining == 0 {Some(DecodeState::Pending)} else {None})
+				(got_bit, if *remaining == 0 {
+					Some(DecodeState::Pending)
+				} else {
+					None
+				})
 			}
 		};
 
+		// FIXME: this was only necessary in a pre-NLL world
 		if let Some(next_state) = next_state {
 			self.state = next_state;
 		}
@@ -167,12 +176,14 @@ where S : Iterator<Item=u8> {
 }
 
 fn byte_to_run_size(byte: u8) -> u8 {
-	let byte = byte & 0x3f;
+	debug_assert!(byte >= 0x80, "byte {:02X}h is not a valid run", byte);
+	let byte = byte & 0x3f; // mask to size part
 	if byte == 0 { 0x40 } else { byte }
 }
 
 fn byte_to_frame_size(byte: u8) -> u8 {
-	if byte == 0 { 0x80 } else { byte }	
+	debug_assert!(byte < 0x80, "byte {:02X}h is not a valid frame header", byte);
+	if byte == 0 { 0x80 } else { byte }
 }
 
 #[derive(Debug)]
@@ -185,7 +196,6 @@ enum DecodeState {
 
 #[cfg(test)]
 mod test_decoder {
-
 	macro_rules! decoder {
 		( $($e:expr),* ) => {
 			{
@@ -204,7 +214,7 @@ mod test_decoder {
 	}
 
 	fn single_run_impl(top_bits: u8, mode: bool) {
-		for i in 0..0x3fu8 {
+		for i in 0x80..0xbfu8 {
 			let run_size = super::byte_to_run_size(i);
 			let mut iter = decoder![i+top_bits];
 			for _ in 0..run_size {
@@ -216,12 +226,12 @@ mod test_decoder {
 
 	#[test]
 	fn single_run_clear() {
-		single_run_impl(0x80, false)
+		single_run_impl(0x00, false)
 	}
 
 	#[test]
 	fn single_run_set() {
-		single_run_impl(0xc0, true)
+		single_run_impl(0x40, true)
 	}
 
 	#[test]
@@ -302,7 +312,9 @@ mod test_decoder {
 
 			assert!(error.is_err());
 			match error.unwrap_err() {
-				super::Error::TruncatedInput(pl, bm) => {
+				super::Error::TruncatedInput {
+					bits_lost: pl, bytes_expected: bm,
+				} => {
 					assert_eq!(pl, bits_lost);
 					assert_eq!(bm, bytes_missing);
 				}

@@ -25,8 +25,16 @@
 mod encode;
 mod decode;
 
-pub use encode::{encode,Encoder};
-pub use decode::{decode,Decoder,Result,Error};
+pub use encode::{
+	encode,
+	Encoder,
+};
+pub use decode::{
+	decode,
+	Decoder,
+	DecodeResult,
+	Error,
+};
 
 #[cfg(test)]
 mod test_encode_round_trip;
