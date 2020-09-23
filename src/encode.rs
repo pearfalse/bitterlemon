@@ -55,13 +55,6 @@ impl Run {
 			Run::Clear(ref mut x) => x,
 		}
 	}
-
-	fn bit(&self) -> u8 {
-		match *self {
-			Run::Set(_) => 1,
-			Run::Clear(_) => 0,
-		}
-	}
 }
 
 #[cfg(test)]
@@ -71,9 +64,10 @@ mod test_runs {
 
 	#[test]
 	fn len() {
-		assert_eq!(50, Set(50).len());
-		assert_eq!(50, Clear(50).len());
-		assert_eq!(Set(23).len(), Clear(23).len());
+		assert_eq!(12, Set(12).len());
+		assert_eq!(23, Set(23).len());
+		assert_eq!(34, Clear(34).len());
+		assert_eq!(45, Clear(45).len());
 	}
 
 	#[test]
@@ -249,7 +243,7 @@ trait RunHoldingExtensions {
 	fn bit_count(&self) -> u16;
 	fn padding(&self) -> u8;
 	fn num_bits(&self) -> u8;
-	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<u8>;
+	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<bool>;
 	fn try_pop_single(&mut self) -> Option<Run>;
 }
 
@@ -271,9 +265,9 @@ impl RunHoldingExtensions for RunHolding {
 		r as u8
 	}
 
-	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<u8> {
+	fn unshift_bit(&mut self, ptr: &mut u8) -> Option<bool> {
 		let head_run = &mut self.get_mut(*ptr as usize)?;
-		let r = head_run.bit();
+		let r = matches!(head_run, Run::Set(_));
 
 		let head_size = head_run.len_mut();
 		*head_size -= 1;
@@ -436,7 +430,7 @@ impl<S: Iterator<Item = Run>> WithFrames<S> {
 				let mut mask = 7;
 				for _ in 0..8 {
 					match self.runs.unshift_bit(ptr) {
-						Some(bit) => byte |= bit << mask,
+						Some(bit) => byte |= (bit as u8) << mask,
 						None => break,
 					}
 					mask -= 1;
