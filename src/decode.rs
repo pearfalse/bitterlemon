@@ -79,14 +79,16 @@ impl<S: Iterator<Item = u8>> Decoder<S> {
 			Some(x) => x,
 			None => return match self.state {
 				DecodeState::Pending => {
+					// source was empty
 					self.state = DecodeState::Done;
 					None
-				}, // source was empty
+				},
 				DecodeState::Done => None,
 				DecodeState::Run(_, _) => unreachable!(
 					"next_with_pulled called with more run bits to flush: {:?}", self.state),
 				DecodeState::Frame(remaining, _, stage_size) => {
-					debug_assert!(stage_size == 0);
+					debug_assert!(stage_size == 0, "decoder pulled from src iter \
+						when there are still {} bits left in frame state", stage_size);
 					debug_assert!(remaining > 0);
 
 					// missing bytes to complete the frame
@@ -110,12 +112,15 @@ impl<S: Iterator<Item = u8>> Decoder<S> {
 			}
 		}
 
-		let got = match next {
+		match next {
 			n if n < 0x80 => {
 				// frame beginning
 				let frame_size = byte_to_frame_size(n);
 				self.state = DecodeState::Frame(frame_size, 0, 0);
-				None
+				// should never recurse more than once; a frame header is the only time
+				// an input byte doesn't give you an output bit
+				let next = self.source.next();
+				self.next_with_pulled(next)
 			},
 			n => {
 				// new run
@@ -131,46 +136,32 @@ impl<S: Iterator<Item = u8>> Decoder<S> {
 				};
 				Some(Ok(mode))
 			}
-		};
-
-		got.or_else(|| {
-			let next = self.source.next();
-			self.next_with_pulled(next)
-		})
+		}
 	}
 
 	fn next_from_existing(&mut self) -> Option<<Self as Iterator>::Item> {
-		let (to_return, next_state) = match self.state {
+		match self.state {
 			DecodeState::Pending => unreachable!(
 				"called next_from_existing while in Pending state"),
-			DecodeState::Done => return None,
+			DecodeState::Done => None,
 			DecodeState::Run(ref mut remaining, run_mode) => {
 				*remaining -= 1;
-				(run_mode, if *remaining == 0 {
-					Some(DecodeState::Pending)
-				} else {
-					None
-				})
+				if *remaining == 0 {
+					self.state = DecodeState::Pending;
+				}
+				Some(Ok(run_mode))
 			},
 			DecodeState::Frame(ref mut remaining, ref mut stage, ref mut stage_size) => {
 				let got_bit = (*stage & 0x80) != 0;
 				*stage = (*stage & 0x7f) << 1;
 				*stage_size -= 1;
 				*remaining -= 1;
-				(got_bit, if *remaining == 0 {
-					Some(DecodeState::Pending)
-				} else {
-					None
-				})
+				if *remaining == 0 {
+					self.state = DecodeState::Pending;
+				}
+				Some(Ok(got_bit))
 			}
-		};
-
-		// FIXME: this was only necessary in a pre-NLL world
-		if let Some(next_state) = next_state {
-			self.state = next_state;
 		}
-
-		Some(Ok(to_return))
 	}
 
 }
