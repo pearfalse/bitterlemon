@@ -3,51 +3,40 @@
 
 use crate::{
 	encode::Run,
-	run_buffer::RunBuffer,
 	MAX_RUN_SIZE,
 	MAX_FRAME_SIZE,
 };
 
+use std::mem::replace;
+
 #[derive(Debug)]
 struct RunBuilder {
-	run_buffer: RunBuffer,
+	current: Option<Run>,
 }
 
 impl RunBuilder {
 	pub fn new() -> RunBuilder {
 		RunBuilder {
-			run_buffer: RunBuffer::new(),
+			current: None,
 		}
 	}
 
-	pub(crate) fn update(&mut self, bit: bool) -> Option<u8> {
-		match self.run_buffer.tail_mut() {
-			Some(tail) if tail.len() == MAX_RUN_SIZE || tail.bit() != bit => {
-				debug_assert!({
-					let l = self.run_buffer.len();
-					l > 0 && l < MAX_FRAME_SIZE
-				});
-				// push new run
-				self.run_buffer.push(Run::new(bit)).unwrap();
-				// old run is guaranteed ready to dissipate
-				Some(self.run_buffer.pull().unwrap().into())
-			},
-			Some(tail) => {
-				debug_assert!(tail.bit() == bit);
+	pub(crate) fn update(&mut self, bit: bool) -> Option<Run> {
+		match self.current.as_mut() {
+			Some(tail) if tail.len() < MAX_RUN_SIZE && tail.bit() == bit => {
 				tail.increment();
 				None
 			},
-			None => {
+			_ => {
 				// fresh run
-				self.run_buffer.push(Run::new(bit)).unwrap();
-				None
+				replace(&mut self.current, Some(Run::new(bit)))
 			},
 		}
 	}
 
 	pub(crate) fn flush(self) -> Option<Run> {
 		let mut this = self;
-		this.run_buffer.pull()
+		this.current.take()
 	}
 }
 
@@ -58,9 +47,36 @@ mod test_run_builder {
 	#[test]
 	fn one_run() {
 		let mut encoder = RunBuilder::new();
-		const LEN: usize = 10;
+		const LEN: u8 = 64;
 		(0..LEN).for_each(|_| assert_eq!(None, encoder.update(true)));
 
-		assert_eq!(Some(Run::Set(LEN as u8)), encoder.flush());
+		assert_eq!(Some(Run::Set(LEN)), encoder.flush());
+	}
+
+	#[test]
+	fn two_runs() {
+		let mut encoder = RunBuilder::new();
+		const LEN: u8 = 96;
+		(0..MAX_RUN_SIZE).for_each(|_| assert_eq!(None, encoder.update(true)));
+
+		// 65th run
+		assert_eq!(Some(Run::Set(MAX_RUN_SIZE).into()), encoder.update(true));
+
+		(MAX_RUN_SIZE+1 .. LEN).for_each(|_| assert_eq!(None, encoder.update(true)));
+		assert_eq!(Some(Run::Set(LEN - MAX_RUN_SIZE).into()), encoder.flush());
+	}
+
+	#[test]
+	fn alternate() {
+		let mut encoder = RunBuilder::new();
+
+		assert_eq!(None, encoder.update(true));
+
+		for _ in 0..100 {
+			assert_eq!(Some(Run::Set(1)), encoder.update(false));
+			assert_eq!(Some(Run::Clear(1)), encoder.update(true));
+		}
+
+		assert_eq!(Some(Run::Set(1)), encoder.flush());
 	}
 }
