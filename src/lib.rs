@@ -26,6 +26,7 @@ mod encode;
 mod decode;
 
 // 0.3
+mod io_encode;
 mod run_buffer;
 
 pub(crate) const MAX_RUN_SIZE: u8 = 64;

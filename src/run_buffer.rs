@@ -154,4 +154,59 @@ mod test_run_buffer {
 
 		assert_eq!(None, rb.pull()); // we emptied it
 	}
+
+	#[test]
+	fn fill_aligned() {
+		fill_impl(|_| {})
+	}
+
+	#[test]
+	fn fill_unaligned() {
+		fill_impl(|rb| {
+			rb.push(Run::Clear(1)).unwrap();
+			rb.push(Run::Clear(1)).unwrap();
+			rb.push(Run::Clear(1)).unwrap();
+			rb.pull();
+			rb.pull();
+			rb.pull();
+		})
+	}
+
+	fn fill_impl(operation: fn(&mut RunBuffer)) {
+		let mut rb = RunBuffer::new();
+		operation(&mut rb);
+
+		for run in all_run_types() {
+			rb.push(run).unwrap();
+		}
+
+		assert_eq!(Err(Run::Set(2)), rb.push(Run::Set(2)));
+		let mut pushed = all_run_types();
+		while let Some(expected) = pushed.next() {
+			assert_eq!(Some(expected), rb.pull());
+		}
+
+		assert_eq!(None, rb.pull());
+	}
+
+	fn all_run_types() -> impl Iterator<Item = Run> {
+		use std::iter;
+		use crate::MAX_RUN_SIZE;
+
+		const SET: fn(u8) -> Run = Run::Set;
+		const CLEAR: fn(u8) -> Run = Run::Clear;
+
+		let sets = iter::repeat(SET).take(MAX_RUN_SIZE as usize);
+		let clears = iter::repeat(CLEAR).take(MAX_RUN_SIZE as usize);
+		let set_counts = 1u8..=MAX_RUN_SIZE;
+		let clear_counts = set_counts.clone();
+
+		fn make(pair: (fn(u8) -> Run, u8)) -> Run {
+			pair.0(pair.1)
+		}
+
+		let sets = sets.zip(set_counts).map(make);
+		let clears = clears.zip(clear_counts).map(make);
+		sets.chain(clears)
+	}
 }
