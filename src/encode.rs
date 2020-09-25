@@ -34,7 +34,7 @@ impl<S: Iterator<Item = bool>> FusedIterator for Encoder<S> { }
 
 /// Represents a single run.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Run {
+pub(crate) enum Run {
 	/// Run is of `1`-valued bits
 	Set(u8),
 	/// Run is of `0`-valued bits

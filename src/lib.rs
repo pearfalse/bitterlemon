@@ -25,6 +25,12 @@
 mod encode;
 mod decode;
 
+// 0.3
+mod run_buffer;
+
+pub(crate) const MAX_RUN_SIZE: u8 = 64;
+pub(crate) const MAX_FRAME_SIZE: u8 = 128;
+
 pub use encode::{
 	encode,
 	Encoder,
