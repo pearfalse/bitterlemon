@@ -58,6 +58,8 @@ impl RunBuffer {
 		ptr.wrapping_sub(1) & Self::inc_mask()
 	}
 
+	pub fn len(&self) -> u8 { self.len }
+
 	pub fn head(&self) -> Option<&Run> {
 		if self.len > 0 {
 			Some(unsafe { self.get_unchecked(self.head) })
@@ -90,7 +92,7 @@ impl RunBuffer {
 		&mut *self.store[idx as usize].as_mut_ptr()
 	}
 
-	fn push(&mut self, run: Run) -> Result<(), Run> {
+	pub fn push(&mut self, run: Run) -> Result<(), Run> {
 		if self.len == MAX_FRAME_SIZE { return Err(run); }
 
 		unsafe {
@@ -106,7 +108,7 @@ impl RunBuffer {
 		Ok(())
 	}
 
-	fn pull(&mut self) -> Option<Run> {
+	pub fn pull(&mut self) -> Option<Run> {
 		if self.len == 0 { return None; }
 
 		let run = unsafe {

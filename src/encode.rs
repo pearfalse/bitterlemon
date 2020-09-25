@@ -42,7 +42,19 @@ pub(crate) enum Run {
 }
 
 impl Run {
-	fn len(&self) -> u8 {
+	pub fn new(bit: bool) -> Run {
+		if bit {
+			Run::Set(1)
+		} else {
+			Run::Clear(1)
+		}
+	}
+
+	pub fn bit(&self) -> bool {
+		matches!(*self, Run::Set(_))
+	}
+
+	pub fn len(&self) -> u8 {
 		match *self {
 			Run::Set(x) => x,
 			Run::Clear(x) => x,
@@ -54,6 +66,12 @@ impl Run {
 			Run::Set(ref mut x) => x,
 			Run::Clear(ref mut x) => x,
 		}
+	}
+
+	pub fn increment(&mut self) {
+		let len = self.len_mut();
+		debug_assert!(*len < crate::MAX_RUN_SIZE);
+		*len = len.wrapping_add(1);
 	}
 }
 
@@ -114,14 +132,6 @@ struct RunIterator<S> {
 	source: S,
 }
 
-fn rle_new_run(pp: bool) -> Run {
-	if pp {
-		Run::Set(1)
-	} else {
-		Run::Clear(1)
-	}
-}
-
 const RLE_MAX_RUN: u8 = 64;
 const RLE_MAX_FRAME: u8 = 128;
 
@@ -157,7 +167,7 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 			match self.state {
 				// Can't fit any more in this run
 				Some(r) if r.len() == RLE_MAX_RUN => {
-					self.state = Some(rle_new_run(pp));
+					self.state = Some(Run::new(pp));
 					return Some(r);
 				},
 
@@ -180,7 +190,7 @@ impl<S: Iterator<Item=bool>> Iterator for RunIterator<S> {
 				// All cases covered, but can't convince rustc
 				Some(_) => unreachable!("missing Some(Run) case"),
 
-				None => self.state = Some(rle_new_run(pp)),
+				None => self.state = Some(Run::new(pp)),
 			}
 		}
 	}
