@@ -7,9 +7,134 @@ use crate::{
 	MAX_FRAME_SIZE,
 };
 
-use std::mem::replace;
+use std::{
+	collections::VecDeque,
+	mem::{replace, transmute},
+};
+
+#[derive(Debug, Default)]
+pub struct Encoder {
+	run_builder: RunBuilder,
+	frame_builder: FrameBuilder,
+	// TODO: this will have a max capacity it can *ever* grow to, and we can
+	// replace the Vec with ArrayVec or somesuch
+	run_holding: VecDeque<Run>,
+}
+
+impl Encoder {
+	pub fn new() -> Encoder {
+		Encoder::default()
+	}
+
+	/// Updates the encoder state.
+	///
+	/// It can take multiple bits to yield an encoded byte, so this method may return
+	/// `None` for the first few invocations. The encode should be considered complete
+	/// when this method returns `None` after being passed `None` as the `bit` argument.
+	/// At this point, you can simply drop the Encoder.
+	pub fn update(&mut self, bit: bool) -> Option<u8> {
+		// when a bit is passed in, but no run comes out, return immediately --
+		// do NOT pass None to frame_builder, which will infer that as source EOF
+		self.run_holding.push_back(self.run_builder.update(bit)?);
+
+		let mut holding = self.run_holding.pop_front();
+		let r = self.frame_builder.update(dbg!(&mut holding));
+		if let Some(not_consumed) = holding {
+			self.run_holding.push_front(not_consumed); // put it back for next time
+		}
+		r
+	}
+
+	pub fn flush(self) -> Flush {
+		let Encoder {
+			run_builder,
+			frame_builder,
+			mut run_holding
+		} = self;
+
+		if let Some(final_run) = run_builder.flush() {
+			run_holding.push_back(final_run);
+		}
+
+		Flush { frame_builder, run_holding }
+	}
+}
 
 #[derive(Debug)]
+pub struct Flush {
+	frame_builder: FrameBuilder,
+	run_holding: VecDeque<Run>,
+}
+
+impl Iterator for Flush {
+	type Item = u8;
+
+	fn next(&mut self) -> Option<Self::Item> {
+
+		loop {
+			// feed in all cached runs, pausing when something comes out
+			let mut next_run = self.run_holding.pop_front();
+			if next_run.is_none() {
+				break;
+			}
+			let r = self.frame_builder.update(&mut next_run);
+			if r.is_some() {
+				// ready to return; ensure we don't lose a run
+				if let Some(not_consumed) = next_run {
+					self.run_holding.push_front(not_consumed);
+				}
+				return r;
+			}
+		}
+
+		// we will now only get a final flushed frame
+		self.frame_builder.update(&mut None)
+	}
+}
+
+
+#[cfg(test)]
+mod test_encoder {
+	use super::*;
+
+	fn convert(s: &[u8]) -> impl Iterator<Item = bool> + '_ {
+		s.iter().map(|&c| c == b'1')
+	}
+
+	fn case(input: impl IntoIterator<Item = bool>, expected: &[u8]) {
+		let mut output_iter = expected.iter().copied();
+		let mut encoder = Encoder::new();
+
+		for bit in input {
+			// new bit from input
+			if let Some(output) = encoder.update(bit) {
+				assert_eq!(output_iter.next(), Some(output));
+			}
+		}
+
+		eprintln!("source iterator dried up");
+		let mut flush = encoder.flush();
+
+		for got in &mut flush {
+			assert_eq!(output_iter.next(), Some(got));
+		}
+
+		assert_eq!(None, output_iter.next());
+		assert_eq!(None, flush.next());
+	}
+
+	#[test]
+	fn just_runs() {
+		case(convert(b"00000000001111111111"), &[0x8a, 0xca]);
+	}
+
+	#[test]
+	fn just_frames() {
+		case(convert(b"1001001001001010"), &[0x10, 0x49, 0x52]);
+	}
+}
+
+
 #[derive(Debug, Default)]
 struct RunBuilder {
 	current: Option<Run>,
@@ -105,7 +230,7 @@ impl Bit {
 		} else {
 			(unsafe {
 				// OOB case was checked above
-				std::mem::transmute((self as u8).wrapping_add(1))
+				transmute((self as u8).wrapping_add(1))
 			}, false)
 		}
 	}
@@ -117,7 +242,7 @@ impl Bit {
 		} else {
 			(unsafe {
 				// OOB case was checked above
-				std::mem::transmute((self as u8).wrapping_sub(1))
+				transmute((self as u8).wrapping_sub(1))
 			}, false)
 		}
 	}
