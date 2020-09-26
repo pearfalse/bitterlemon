@@ -94,7 +94,7 @@ impl RunBuffer {
 		&mut *self.store[idx as usize].as_mut_ptr()
 	}
 
-	pub fn push(&mut self, run: Run) -> Result<(), Run> {
+	pub fn push_back(&mut self, run: Run) -> Result<(), Run> {
 		if self.len == Self::capacity() { return Err(run); }
 
 		unsafe {
@@ -110,7 +110,24 @@ impl RunBuffer {
 		Ok(())
 	}
 
-	pub fn pull(&mut self) -> Option<Run> {
+	pub fn push_front(&mut self, run: Run) -> Result<(), Run> {
+		if self.len == Self::capacity() { return Err(run); }
+
+		let new_head = Self::dec_ptr(self.head);
+		unsafe {
+			// checked in debug builds
+			debug_assert!(new_head < Self::capacity());
+			let target = self.store.get_unchecked_mut(new_head as usize).as_mut_ptr();
+			ptr::write(target, run);
+		}
+
+		self.head = new_head;
+		self.len += 1;
+
+		Ok(())
+	}
+
+	pub fn pop_front(&mut self) -> Option<Run> {
 		if self.len == 0 { return None; }
 
 		let run = unsafe {
@@ -118,7 +135,7 @@ impl RunBuffer {
 			debug_assert!(self.head < Self::capacity());
 			let target = self.store.get_unchecked_mut(self.head as usize).as_ptr();
 			// ptr::read isn't strictly necessary here, since Run is Copy and !Drop, but it
-			// provides symmetry with `push`, and doesn't require the above invariants
+			// provides symmetry with `push_back`, and doesn't require the above invariants
 			ptr::read(target)
 		};
 
@@ -136,7 +153,7 @@ mod test_run_buffer {
 	#[test]
 	fn basic() {
 		let mut rb = RunBuffer::new();
-		assert_eq!(None, rb.pull());
+		assert_eq!(None, rb.pop_front());
 
 		let runs = [
 			Run::Set(1),
@@ -146,17 +163,27 @@ mod test_run_buffer {
 		];
 
 		for run in runs.iter().copied() {
-			rb.push(run).unwrap();
+			rb.push_back(run).unwrap();
 			assert_eq!(Some(&runs[0]), rb.head());
 			assert_eq!(Some(&run), rb.tail());
 		}
 
 		let mut read_back = runs.iter().copied();
 		while let expected @ Some(_) = read_back.next() {
-			assert_eq!(expected, rb.pull());
+			assert_eq!(expected, rb.pop_front());
 		}
 
-		assert_eq!(None, rb.pull()); // we emptied it
+		assert_eq!(None, rb.pop_front()); // we emptied it
+	}
+
+	#[test]
+	fn pop_front() {
+		let mut rb = RunBuffer::new();
+		rb.push_front(Run::Set(1)).unwrap();
+		rb.push_front(Run::Set(2)).unwrap();
+
+		assert_eq!(Some(Run::Set(2)), rb.pop_front());
+		assert_eq!(Some(Run::Set(1)), rb.pop_front());
 	}
 
 	#[test]
@@ -167,12 +194,12 @@ mod test_run_buffer {
 	#[test]
 	fn fill_unaligned() {
 		fill_impl(|rb| {
-			rb.push(Run::Clear(1)).unwrap();
-			rb.push(Run::Clear(1)).unwrap();
-			rb.push(Run::Clear(1)).unwrap();
-			rb.pull();
-			rb.pull();
-			rb.pull();
+			rb.push_back(Run::Clear(1)).unwrap();
+			rb.push_back(Run::Clear(1)).unwrap();
+			rb.push_back(Run::Clear(1)).unwrap();
+			rb.pop_front();
+			rb.pop_front();
+			rb.pop_front();
 		})
 	}
 
@@ -181,16 +208,16 @@ mod test_run_buffer {
 		operation(&mut rb);
 
 		for run in fill_with_runs() {
-			rb.push(run).unwrap();
+			rb.push_back(run).unwrap();
 		}
 
-		assert_eq!(Err(Run::Set(2)), rb.push(Run::Set(2)));
+		assert_eq!(Err(Run::Set(2)), rb.push_back(Run::Set(2)));
 		let mut pushed = fill_with_runs();
 		while let Some(expected) = pushed.next() {
-			assert_eq!(Some(expected), rb.pull());
+			assert_eq!(Some(expected), rb.pop_front());
 		}
 
-		assert_eq!(None, rb.pull());
+		assert_eq!(None, rb.pop_front());
 	}
 
 	fn fill_with_runs() -> impl Iterator<Item = Run> {
