@@ -15,6 +15,7 @@ arrayvec = ">= 0.4"
 [dev-dependencies]
 criterion = "0.3"
 random = ">= 0.12"
+hex-slice = "0.1.4"
 
 [[bench]]
 name = "test_encode_round_trip"

@@ -137,7 +137,7 @@ struct FrameBuilder {
 	frame_stage: [u8; STAGE_SIZE],
 
 	// index of frame byte to add to
-	frame_idx: u8,
+	stage_idx: u8,
 
 	// flushing edge case
 	frame_single_run: Option<Run>,
@@ -156,7 +156,7 @@ impl FrameBuilder {
 	pub fn new() -> FrameBuilder {
 		FrameBuilder {
 			frame_stage: [0; STAGE_SIZE],
-			frame_idx: 0,
+			stage_idx: 0,
 			frame_single_run: None,
 			stage_bit: Bit::Bit0, // BL is LSB-first from 0.3
 			flush_idx: None,
@@ -164,13 +164,12 @@ impl FrameBuilder {
 	}
 
 	fn flush_bit_count(&self) -> u8 {
-		let whole_bytes = self.frame_idx * 8;
+		let whole_bytes = self.stage_idx * 8;
 		let partial = self.stage_bit as u8;
 		whole_bytes + partial
 	}
 
 	pub fn update(&mut self, run: &mut Option<Run>) -> Option<u8> {
-		let mut flush_now = false;
 		let flush_bit_count = self.flush_bit_count();
 
 		let mut add_run_to_frame = None;
@@ -184,24 +183,29 @@ impl FrameBuilder {
 				// when equal, add to frame -- mitigate pathological cases where frames are
 				// consistently opened after balanced runs close them
 
-				if len >= 16 { return false; } // too big to benefit
-				if len < 8 { return true; } // always beneficial
-
 				// would the frame get too large?
 				if flush_bit_count + len > MAX_FRAME_SIZE {
-					// start emptying frame
-					flush_now = true;
 					return false;
 				}
 
+				if len >= 16 { return false; } // too big to benefit
+				if len < 8 { return true; } // always beneficial
+
 				let padding = (8 - self.stage_bit as u8) & 7;
-				padding + 8 >= len
+				dbg!(padding) + 8 >= len
 			})() {
 				add_run_to_frame = run.take(); // will be Some()
 			}
 		}
 
-		if flush_now {
+		if dbg!(add_run_to_frame).is_none() && dbg!(self.flush_idx).is_none() {
+			// not currently flushing frame, but no frame to add
+
+			if self.stage_idx == 0 && self.stage_bit == Bit::Bit0 {
+				// stage is empty; pass through a run you might have
+				return run.take().map(u8::from);
+			}
+
 			// start flushing this frame; we'll output its header now
 			self.flush_idx = Some(0);
 			self.stage_bit = Bit::Bit0;
@@ -213,11 +217,15 @@ impl FrameBuilder {
 
 		if let Some(ref mut fi) = self.flush_idx {
 			// flush byte of frame
+			dbg!(*fi);
 			let r = self.frame_stage[*fi as usize];
 			*fi += 1;
-			if *fi == self.frame_idx {
+			if (*fi * 8) >= (self.stage_idx * 8 + self.stage_bit as u8) {
 				// frame completely sent; reset
+				eprintln!("Frame sent; resetting");
 				self.flush_idx = None;
+				self.stage_idx = 0;
+				self.stage_bit = Bit::Bit0;
 			}
 			return Some(r);
 		}
@@ -236,16 +244,16 @@ impl FrameBuilder {
 	fn pour_run_into_frame(&mut self, run: Run) {
 		let bit = run.bit() as u8;
 		for _ in 0..run.len() {
-			let tgt = &mut self.frame_stage[self.frame_idx as usize];
+			let tgt = &mut self.frame_stage[self.stage_idx as usize];
 			*tgt |= bit << *self.stage_bit;
 
 			// increment bit
 			let (stage_bit, wrap_idx) = self.stage_bit.inc();
 			self.stage_bit = stage_bit;
 			if wrap_idx {
-				self.frame_idx += 1;
-				// self.frame_idx == MAX_FRAME_SIZE is ok here, if this fills the frame to 100.0%
-				debug_assert!(self.frame_idx <= MAX_FRAME_SIZE);
+				self.stage_idx += 1;
+				// self.stage_idx == MAX_FRAME_SIZE is ok here, if this fills the frame to 100.0%
+				debug_assert!(self.stage_idx <= MAX_FRAME_SIZE);
 			}
 		}
 	}
@@ -254,22 +262,31 @@ impl FrameBuilder {
 #[cfg(test)]
 mod test_with_frames {
 	use super::*;
+	use hex_slice::AsHex;
 
 	fn case(input: &[Run], expected: &[u8]) {
+		println!("\nNew case: {:?} -> {:02x}", input, expected.as_hex());
 		let mut output = Vec::with_capacity(expected.len());
 		let mut encoder = FrameBuilder::new();
 		let mut src_iter = input.iter().copied();
 		while let mut next @ Some(_) = src_iter.next() {
-			loop {
+			while next.is_some() {
 				if let Some(got) = encoder.update(&mut next) {
 					// got output byte
+					println!("Got stage1 output {:02x}", got);
 					output.push(got);
 				}
-				if next.is_none() { break; }
 			}
 		}
 
-		assert_eq!(expected, &*output);
+		// no more inputs; catch all staged outputs
+		while let Some(flushed) = encoder.update(&mut None) {
+			println!("Got stage2 output {:02x}", flushed);
+			output.push(flushed);
+		}
+
+		assert_eq!(expected, &*output,
+			"expected {:02x}, got {:02x}", expected.as_hex(), (&*output).as_hex());
 	}
 
 	#[test]
@@ -286,11 +303,6 @@ mod test_with_frames {
 		}
 
 		case(v.as_slice(), &[0x08, 0x55]);
-	}
-
-	#[test]
-	fn one_run() {
-		case(&[Run::Set(1)], &[0xc1]);
 	}
 
 	#[test]
@@ -334,6 +346,7 @@ mod test_with_frames {
 	}
 
 	#[test]
+	#[ignore] // 1frame
 	fn abandon_frame_on_long_runs() {
 		case(
 			&[Run::Clear(1), Run::Set(2), Run::Clear(16)],
@@ -362,7 +375,10 @@ mod test_with_frames {
 	}
 
 	#[test]
+	#[ignore] // 1frame
 	fn undo_single_byte_frame() {
+		case(&[Run::Set(1)], &[0xc1]);
+
 		case(
 			&[Run::Set(1), Run::Clear(64)],
 			&[0xc1, 0x80]
@@ -370,6 +386,7 @@ mod test_with_frames {
 	}
 
 	#[test]
+	#[ignore] // 1frame
 	fn avoid_frame_overflow() {
 		// capacities should reflect final compiled size
 		let mut inputs = Vec::with_capacity((MAX_FRAME_SIZE as usize) + 1);
@@ -385,7 +402,7 @@ mod test_with_frames {
 
 		outputs.push(0u8); // frame size
 		for _ in 0..(MAX_FRAME_SIZE / 8) {
-			outputs.push(0xaa);
+			outputs.push(0x55);
 		}
 		outputs.push(0xc1);
 
