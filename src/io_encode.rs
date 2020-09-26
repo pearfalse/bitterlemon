@@ -86,6 +86,7 @@ const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
 enum Bit {
 	Bit0 = 0,
 	Bit1 = 1,
@@ -149,9 +150,6 @@ struct FrameBuilder {
 	flush_idx: Option<u8>,
 }
 
-const TOP_BIT: u8 = 7;
-const BOTTOM_BIT: u8 = 1;
-
 impl FrameBuilder {
 	pub fn new() -> FrameBuilder {
 		FrameBuilder {
@@ -201,9 +199,16 @@ impl FrameBuilder {
 		if dbg!(add_run_to_frame).is_none() && dbg!(self.flush_idx).is_none() {
 			// not currently flushing frame, but no frame to add
 
-			if self.stage_idx == 0 && self.stage_bit == Bit::Bit0 {
+			if self.stage_is_empty() {
 				// stage is empty; pass through a run you might have
 				return run.take().map(u8::from);
+			}
+
+			// before setting up a frame flush: does it just contain a single run?
+			// if so, just jump that out as a run
+			if let Some(just_one_run) = self.frame_single_run.take() {
+				self.reset_stage();
+				return Some(just_one_run.into());
 			}
 
 			// start flushing this frame; we'll output its header now
@@ -223,9 +228,7 @@ impl FrameBuilder {
 			if (*fi * 8) >= (self.stage_idx * 8 + self.stage_bit as u8) {
 				// frame completely sent; reset
 				eprintln!("Frame sent; resetting");
-				self.flush_idx = None;
-				self.stage_idx = 0;
-				self.stage_bit = Bit::Bit0;
+				self.reset_stage();
 			}
 			return Some(r);
 		}
@@ -242,6 +245,14 @@ impl FrameBuilder {
 	}
 
 	fn pour_run_into_frame(&mut self, run: Run) {
+		// if this is the first run in the frame, copy it
+		// in case it ends up being the only frame run
+		if self.stage_is_empty() {
+			self.frame_single_run = Some(run);
+		} else {
+			self.frame_single_run = None;
+		}
+
 		let bit = run.bit() as u8;
 		for _ in 0..run.len() {
 			let tgt = &mut self.frame_stage[self.stage_idx as usize];
@@ -256,6 +267,16 @@ impl FrameBuilder {
 				debug_assert!(self.stage_idx <= MAX_FRAME_SIZE);
 			}
 		}
+	}
+
+	fn stage_is_empty(&self) -> bool {
+		self.stage_idx == 0 && self.stage_bit == Bit::Bit0
+	}
+
+	fn reset_stage(&mut self) {
+		self.flush_idx = None;
+		self.stage_idx = 0;
+		self.stage_bit = Bit::Bit0;
 	}
 }
 
@@ -346,7 +367,6 @@ mod test_with_frames {
 	}
 
 	#[test]
-	#[ignore] // 1frame
 	fn abandon_frame_on_long_runs() {
 		case(
 			&[Run::Clear(1), Run::Set(2), Run::Clear(16)],
@@ -375,7 +395,6 @@ mod test_with_frames {
 	}
 
 	#[test]
-	#[ignore] // 1frame
 	fn undo_single_byte_frame() {
 		case(&[Run::Set(1)], &[0xc1]);
 
@@ -386,7 +405,6 @@ mod test_with_frames {
 	}
 
 	#[test]
-	#[ignore] // 1frame
 	fn avoid_frame_overflow() {
 		// capacities should reflect final compiled size
 		let mut inputs = Vec::with_capacity((MAX_FRAME_SIZE as usize) + 1);
