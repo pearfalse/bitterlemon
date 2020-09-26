@@ -10,18 +10,17 @@ use crate::{
 use std::mem::replace;
 
 #[derive(Debug)]
+#[derive(Debug, Default)]
 struct RunBuilder {
 	current: Option<Run>,
 }
 
 impl RunBuilder {
-	pub fn new() -> RunBuilder {
-		RunBuilder {
-			current: None,
-		}
+	fn new() -> RunBuilder {
+		RunBuilder::default()
 	}
 
-	pub(crate) fn update(&mut self, bit: bool) -> Option<Run> {
+	fn update(&mut self, bit: bool) -> Option<Run> {
 		match self.current.as_mut() {
 			Some(tail) if tail.len() < MAX_RUN_SIZE && tail.bit() == bit => {
 				tail.increment();
@@ -34,7 +33,7 @@ impl RunBuilder {
 		}
 	}
 
-	pub(crate) fn flush(self) -> Option<Run> {
+	fn flush(self) -> Option<Run> {
 		let mut this = self;
 		this.current.take()
 	}
@@ -84,7 +83,7 @@ mod test_run_builder {
 const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
 enum Bit {
@@ -128,75 +127,105 @@ impl std::ops::Deref for Bit {
 	type Target = u8;
 	fn deref(&self) -> &Self::Target {
 		// u8 is a strict superset of Self, and we don't impl DerefMut
-		unsafe { std::mem::transmute(self) }
+		unsafe { transmute(self) }
 	}
 }
 
 #[derive(Debug)]
+enum StageFlow {
+	Fill {
+		stage_idx: u8,
+		stage_bit: Bit,
+	},
+	Flush {
+		flush_idx: u8,
+		stage_size: u8,
+	}
+}
+
+impl StageFlow {
+	/// Migrates a stage flow from fill to flush, returning the header byte.
+	fn flush(&mut self) -> u8 {
+		match *self {
+			StageFlow::Fill { stage_idx, stage_bit } => {
+				let raw_stage_size = stage_idx * 8 + *stage_bit;
+				eprintln!("Now flushing, raw stage size {}", raw_stage_size);
+				*self = StageFlow::Flush {
+					flush_idx: 0,
+					// copy stage_idx, add 1 if some bits have been written to
+					stage_size: stage_idx + u8::from(stage_bit > Bit::Bit0)
+				};
+				if raw_stage_size == MAX_FRAME_SIZE { 0 } else { raw_stage_size }
+			},
+			_ => {unreachable!("called `flush` for non-Fill stage flow")}
+		}
+	}
+
+	fn reset(&mut self) {
+		*self = StageFlow::default();
+	}
+}
+
+impl Default for StageFlow {
+	fn default() -> Self {
+		StageFlow::Fill {
+			stage_idx: 0, stage_bit: Bit::Bit0,
+		}
+	}
+}
+
+#[derive(Debug, Default)]
 struct FrameBuilder {
 	// assemble frame here
 	frame_stage: [u8; STAGE_SIZE],
 
 	// index of frame byte to add to
-	stage_idx: u8,
+	stage_flow: StageFlow,
 
 	// flushing edge case
 	frame_single_run: Option<Run>,
-
-	// bit # (0–7) to add to next
-	stage_bit: Bit,
-
-	// if Some, continue flushing frame from this idx
-	flush_idx: Option<u8>,
 }
 
 impl FrameBuilder {
 	pub fn new() -> FrameBuilder {
-		FrameBuilder {
-			frame_stage: [0; STAGE_SIZE],
-			stage_idx: 0,
-			frame_single_run: None,
-			stage_bit: Bit::Bit0, // BL is LSB-first from 0.3
-			flush_idx: None,
-		}
-	}
-
-	fn flush_bit_count(&self) -> u8 {
-		let whole_bytes = self.stage_idx * 8;
-		let partial = self.stage_bit as u8;
-		whole_bytes + partial
+		FrameBuilder::default()
 	}
 
 	pub fn update(&mut self, run: &mut Option<Run>) -> Option<u8> {
-		let flush_bit_count = self.flush_bit_count();
+		// The given run will not be `take`n if it's deemed too big for an active frame,
+		// which needs to be flushed first
 
 		let mut add_run_to_frame = None;
 		if let Some(len) = run.map(|r| r.len()) {
 			// we were given a run, and we have its length
-			if self.flush_idx.is_none() && (|| {
-				// there's a run we can pull, and a frame we're assembling
-				// to add or not to add? the options are:
-				// - pad the frame and output a run (cost: padding + 8)
-				// - add to the frame (cost: run size)
-				// when equal, add to frame -- mitigate pathological cases where frames are
-				// consistently opened after balanced runs close them
+			if let StageFlow::Fill { stage_idx, stage_bit } = self.stage_flow {
+				if (|| {
+					// there's a run we can pull, and a frame we're assembling
+					// to add or not to add? the options are:
+					// - pad the frame and output a run (cost: padding + 8)
+					// - add to the frame (cost: run size)
+					// when equal, add to frame -- mitigate pathological cases where
+					// frames are consistently opened after balanced runs close them
 
-				// would the frame get too large?
-				if flush_bit_count + len > MAX_FRAME_SIZE {
-					return false;
+					// would the frame get too large?
+					let try_frame_size = stage_idx * 8 + *stage_bit + len;
+					if try_frame_size > MAX_FRAME_SIZE {
+						return false;
+					}
+
+					if len >= 16 { return false; } // too big to benefit
+					if len < 8 { return true; } // always beneficial
+
+					let padding = (8 - *stage_bit) & 7;
+					dbg!(padding) + 8 >= len
+				})() {
+					add_run_to_frame = run.take(); // will be Some()
 				}
-
-				if len >= 16 { return false; } // too big to benefit
-				if len < 8 { return true; } // always beneficial
-
-				let padding = (8 - self.stage_bit as u8) & 7;
-				dbg!(padding) + 8 >= len
-			})() {
-				add_run_to_frame = run.take(); // will be Some()
 			}
 		}
 
-		if dbg!(add_run_to_frame).is_none() && dbg!(self.flush_idx).is_none() {
+		if add_run_to_frame.is_none()
+		&& !matches!(self.stage_flow, StageFlow::Flush {..}) {
 			// not currently flushing frame, but no frame to add
 
 			if self.stage_is_empty() {
@@ -207,28 +236,23 @@ impl FrameBuilder {
 			// before setting up a frame flush: does it just contain a single run?
 			// if so, just jump that out as a run
 			if let Some(just_one_run) = self.frame_single_run.take() {
-				self.reset_stage();
+				self.stage_flow.reset();
 				return Some(just_one_run.into());
 			}
 
 			// start flushing this frame; we'll output its header now
-			self.flush_idx = Some(0);
-			self.stage_bit = Bit::Bit0;
-			return Some(match flush_bit_count {
-				n if n == MAX_FRAME_SIZE => 0,
-				n => n,
-			});
+			let header = self.stage_flow.flush();
+			return Some(header);
 		}
 
-		if let Some(ref mut fi) = self.flush_idx {
+		if let StageFlow::Flush { ref mut flush_idx, stage_size } = self.stage_flow {
 			// flush byte of frame
-			dbg!(*fi);
-			let r = self.frame_stage[*fi as usize];
-			*fi += 1;
-			if (*fi * 8) >= (self.stage_idx * 8 + self.stage_bit as u8) {
+			let r = self.frame_stage[*flush_idx as usize];
+			*flush_idx += 1;
+			if *flush_idx >= stage_size {
 				// frame completely sent; reset
 				eprintln!("Frame sent; resetting");
-				self.reset_stage();
+				self.stage_flow.reset();
 			}
 			return Some(r);
 		}
@@ -253,30 +277,35 @@ impl FrameBuilder {
 			self.frame_single_run = None;
 		}
 
-		let bit = run.bit() as u8;
+		let (stage_idx, stage_bit) = match self.stage_flow {
+			StageFlow::Fill { ref mut stage_idx, ref mut stage_bit }
+				=> (stage_idx, stage_bit),
+			_
+				=> unreachable!("incorrect flow state for pour_run_into_frame"),
+		};
+
+		let bit = u8::from(run.bit());
 		for _ in 0..run.len() {
-			let tgt = &mut self.frame_stage[self.stage_idx as usize];
-			*tgt |= bit << *self.stage_bit;
+			let tgt = &mut self.frame_stage[*stage_idx as usize];
+			*tgt |= bit << **stage_bit;
 
 			// increment bit
-			let (stage_bit, wrap_idx) = self.stage_bit.inc();
-			self.stage_bit = stage_bit;
+			let (new_stage_bit, wrap_idx) = stage_bit.inc();
+			*stage_bit = new_stage_bit;
 			if wrap_idx {
-				self.stage_idx += 1;
+				*stage_idx += 1;
 				// self.stage_idx == MAX_FRAME_SIZE is ok here, if this fills the frame to 100.0%
-				debug_assert!(self.stage_idx <= MAX_FRAME_SIZE);
+				debug_assert!(*stage_idx <= MAX_FRAME_SIZE);
 			}
 		}
 	}
 
 	fn stage_is_empty(&self) -> bool {
-		self.stage_idx == 0 && self.stage_bit == Bit::Bit0
-	}
-
-	fn reset_stage(&mut self) {
-		self.flush_idx = None;
-		self.stage_idx = 0;
-		self.stage_bit = Bit::Bit0;
+		match self.stage_flow {
+			StageFlow::Fill { stage_idx, stage_bit }
+				=> stage_idx == 0 && stage_bit == Bit::Bit0,
+			_ => unreachable!("called `stage_is_empty` for non-Fill stage"),
+		}
 	}
 }
 
