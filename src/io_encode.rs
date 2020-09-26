@@ -250,3 +250,145 @@ impl FrameBuilder {
 		}
 	}
 }
+
+#[cfg(test)]
+mod test_with_frames {
+	use super::*;
+
+	fn case(input: &[Run], expected: &[u8]) {
+		let mut output = Vec::with_capacity(expected.len());
+		let mut encoder = FrameBuilder::new();
+		let mut src_iter = input.iter().copied();
+		while let mut next @ Some(_) = src_iter.next() {
+			loop {
+				if let Some(got) = encoder.update(&mut next) {
+					// got output byte
+					output.push(got);
+				}
+				if next.is_none() { break; }
+			}
+		}
+
+		assert_eq!(expected, &*output);
+	}
+
+	#[test]
+	fn empty_frame() {
+		case (&[], &[]);
+	}
+
+	#[test]
+	fn one_byte_frame_filled() {
+		let mut v = Vec::with_capacity(8);
+		for _ in 0..4 {
+			v.push(Run::Set(1));
+			v.push(Run::Clear(1));
+		}
+
+		case(v.as_slice(), &[0x08, 0x55]);
+	}
+
+	#[test]
+	fn one_run() {
+		case(&[Run::Set(1)], &[0xc1]);
+	}
+
+	#[test]
+	fn two_runs() {
+		case(&[Run::Clear(1), Run::Set(1)], &[0x02, 0x02]);
+	}
+
+	#[test]
+	fn byte_nearly_filled() {
+		let mut src = Vec::with_capacity(7);
+		src.push(Run::Clear(1));
+		for _ in 0..3 {
+			src.push(Run::Set(1));
+			src.push(Run::Clear(1));
+		}
+		case(src.as_slice(), &[0x07, 0x2a]);
+	}
+
+	#[test]
+	fn two_bytes() {
+		case(
+			&[Run::Set(6), Run::Clear(4), Run::Set(6)],
+			&[0x10, 0x3f, 0xfc]
+		);
+	}
+
+	#[test]
+	fn never_create_frame_for_longer_runs() {
+		case(
+			&[Run::Set(16)],
+			&[0xd0]
+		);
+		case(
+			&[Run::Clear(16)],
+			&[0x90]
+		);
+		case(
+			&[Run::Clear(16), Run::Set(16)],
+			&[0x90, 0xd0]
+		);
+	}
+
+	#[test]
+	fn abandon_frame_on_long_runs() {
+		case(
+			&[Run::Clear(1), Run::Set(2), Run::Clear(16)],
+			&[0x03, 0x06, 0x90]
+		);
+		case(
+			&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
+			&[0x94, 0x02, 0x01, 0xd4]
+		);
+		case(
+			&[Run::Set(1), Run::Clear(1), Run::Set(1), Run::Clear(1), Run::Set(64), Run::Set(4)],
+			&[0x04, 0x05, 0xc0, 0xc4]
+		);
+	}
+
+	#[test]
+	fn conditional_on_padding() {
+		case(
+			&[Run::Set(1), Run::Clear(15)],
+			&[0x10, 0x01, 0x00]
+		);
+		case(
+			&[Run::Set(7), Run::Clear(1), Run::Set(8)],
+			&[0x10, 0x7f, 0xff]
+		);
+	}
+
+	#[test]
+	fn undo_single_byte_frame() {
+		case(
+			&[Run::Set(1), Run::Clear(64)],
+			&[0xc1, 0x80]
+		);
+	}
+
+	#[test]
+	fn avoid_frame_overflow() {
+		// capacities should reflect final compiled size
+		let mut inputs = Vec::with_capacity((MAX_FRAME_SIZE as usize) + 1);
+		let mut outputs = Vec::with_capacity((MAX_FRAME_SIZE as usize) / 8 + 2);
+
+		// create a set1-clear1 pattern that fills up a frame 100%...
+		for _ in 0..(MAX_FRAME_SIZE / 2) {
+			inputs.push(Run::Set(1));
+			inputs.push(Run::Clear(1));
+		}
+		// ...then add one more
+		inputs.push(Run::Set(1));
+
+		outputs.push(0u8); // frame size
+		for _ in 0..(MAX_FRAME_SIZE / 8) {
+			outputs.push(0xaa);
+		}
+		outputs.push(0xc1);
+
+		case(inputs.as_slice(), outputs.as_slice());
+	}
+}
