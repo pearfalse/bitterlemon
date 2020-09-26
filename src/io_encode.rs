@@ -132,6 +132,11 @@ mod test_encoder {
 	fn just_frames() {
 		case(convert(b"1001001001001010"), &[0x10, 0x49, 0x52]);
 	}
+
+	#[test]
+	fn mixes() {
+		case(convert(b"1100110011111111111101010101"), &[0x08, 0x33, 0xcc, 0x08, 0xaa]);
+	}
 }
 
 
@@ -361,7 +366,7 @@ impl FrameBuilder {
 			// before setting up a frame flush: does it just contain a single run?
 			// if so, just jump that out as a run
 			if let Some(just_one_run) = self.frame_single_run.take() {
-				self.stage_flow.reset();
+				self.reset_stage();
 				return Some(just_one_run.into());
 			}
 
@@ -371,13 +376,13 @@ impl FrameBuilder {
 		}
 
 		if let StageFlow::Flush { ref mut flush_idx, stage_size } = self.stage_flow {
-			// flush byte of frame
-			let r = self.frame_stage[*flush_idx as usize];
+			// flush byte of frame, leave 0 behind
+			let r = replace(&mut self.frame_stage[*flush_idx as usize], 0);
 			*flush_idx += 1;
 			if *flush_idx >= stage_size {
 				// frame completely sent; reset
 				eprintln!("Frame sent; resetting");
-				self.stage_flow.reset();
+				self.reset_stage();
 			}
 			return Some(r);
 		}
@@ -423,6 +428,10 @@ impl FrameBuilder {
 				debug_assert!(*stage_idx <= MAX_FRAME_SIZE);
 			}
 		}
+	}
+
+	fn reset_stage(&mut self) {
+		self.stage_flow.reset();
 	}
 
 	fn stage_is_empty(&self) -> bool {
@@ -556,6 +565,28 @@ mod test_with_frames {
 			&[Run::Set(1), Run::Clear(64)],
 			&[0xc1, 0x80]
 		);
+	}
+
+	#[test]
+	fn clear_stage() {
+		// ensure bits set from previous frames are 0'd out when used again
+		case(&[
+			Run::Set(1), Run::Clear(1),
+			Run::Set(1), Run::Clear(1),
+			Run::Set(1), Run::Clear(1),
+			Run::Set(1), Run::Clear(1),
+			Run::Set(1), Run::Clear(1),
+			Run::Set(MAX_RUN_SIZE),
+			Run::Clear(1), Run::Set(1),
+			Run::Clear(1), Run::Set(1),
+			Run::Clear(1), Run::Set(1),
+			Run::Clear(1), Run::Set(1),
+			Run::Clear(1), Run::Set(1),
+		], &[
+			0x0a, 0x55, 0x01,
+			0xc0,
+			0x0a, 0xaa, 0x02,
+		]);
 	}
 
 	#[test]
