@@ -3,12 +3,12 @@
 
 use crate::{
 	encode::Run,
+	run_buffer::RunBuffer,
 	MAX_RUN_SIZE,
 	MAX_FRAME_SIZE,
 };
 
 use std::{
-	collections::VecDeque,
 	mem::{replace, transmute},
 };
 
@@ -18,7 +18,7 @@ pub struct Encoder {
 	frame_builder: FrameBuilder,
 	// TODO: this will have a max capacity it can *ever* grow to, and we can
 	// replace the Vec with ArrayVec or somesuch
-	run_holding: RunHolding,
+	run_holding: RunBuffer,
 }
 
 impl Encoder {
@@ -35,12 +35,14 @@ impl Encoder {
 	pub fn update(&mut self, bit: bool) -> Option<u8> {
 		// when a bit is passed in, but no run comes out, return immediately --
 		// do NOT pass None to frame_builder, which will infer that as source EOF
-		self.run_holding.push_back(self.run_builder.update(bit)?);
+		self.run_holding.push_back(self.run_builder.update(bit)?)
+			.expect("Encoder::update/1: RunBuffer overflow");
 
 		let mut holding = self.run_holding.pop_front();
 		let r = self.frame_builder.update(&mut holding);
 		if let Some(not_consumed) = holding {
-			self.run_holding.push_front(not_consumed); // put it back for next time
+			self.run_holding.push_front(not_consumed) // put it back for next time
+			.expect("Encoder::update/2: RunBuffer overflow");
 		}
 		r
 	}
@@ -53,7 +55,8 @@ impl Encoder {
 		} = self;
 
 		if let Some(final_run) = run_builder.flush() {
-			run_holding.push_back(final_run);
+			run_holding.push_back(final_run)
+			.expect("Encoder::flush/1: RunBuffer overflow");
 		}
 
 		Flush { frame_builder, run_holding }
@@ -63,7 +66,7 @@ impl Encoder {
 #[derive(Debug)]
 pub struct Flush {
 	frame_builder: FrameBuilder,
-	run_holding: RunHolding,
+	run_holding: RunBuffer,
 }
 
 impl Iterator for Flush {
@@ -81,7 +84,8 @@ impl Iterator for Flush {
 			if r.is_some() {
 				// ready to return; ensure we don't lose a run
 				if let Some(not_consumed) = next_run {
-					self.run_holding.push_front(not_consumed);
+					self.run_holding.push_front(not_consumed)
+					.expect("Flush::next/1: RunBuffer overflow");
 				}
 				return r;
 			}
@@ -168,36 +172,6 @@ mod test_encoder {
 
 
 #[derive(Debug, Default)]
-struct RunHolding {
-	storage: VecDeque<Run>,
-	maxlen: usize,
-}
-
-impl RunHolding {
-	fn push_back(&mut self, run: Run) {
-		self.storage.push_back(run);
-		self.check();
-	}
-
-	fn push_front(&mut self, run: Run) {
-		self.storage.push_front(run);
-		self.check();
-	}
-
-	fn pop_front(&mut self) -> Option<Run> {
-		self.storage.pop_front()
-	}
-
-	fn check(&mut self) {
-		let newlen = self.storage.len();
-		if newlen > self.maxlen {
-			eprintln!("NEW MAXLEN: {}", newlen);
-			self.maxlen = newlen;
-		}
-	}
-}
-
-#[derive(Debug, Default)]
 struct RunBuilder {
 	current: Option<Run>,
 }
@@ -267,8 +241,8 @@ mod test_run_builder {
 	}
 }
 
-const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
 
+const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]

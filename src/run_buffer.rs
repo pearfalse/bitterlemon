@@ -146,6 +146,12 @@ impl RunBuffer {
 	}
 }
 
+impl Default for RunBuffer {
+	fn default() -> RunBuffer {
+		RunBuffer::new()
+	}
+}
+
 #[cfg(test)]
 mod test_run_buffer {
 	use super::*;
