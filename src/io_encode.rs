@@ -18,7 +18,7 @@ pub struct Encoder {
 	frame_builder: FrameBuilder,
 	// TODO: this will have a max capacity it can *ever* grow to, and we can
 	// replace the Vec with ArrayVec or somesuch
-	run_holding: VecDeque<Run>,
+	run_holding: RunHolding,
 }
 
 impl Encoder {
@@ -63,7 +63,7 @@ impl Encoder {
 #[derive(Debug)]
 pub struct Flush {
 	frame_builder: FrameBuilder,
-	run_holding: VecDeque<Run>,
+	run_holding: RunHolding,
 }
 
 impl Iterator for Flush {
@@ -137,8 +137,65 @@ mod test_encoder {
 	fn mixes() {
 		case(convert(b"1100110011111111111101010101"), &[0x08, 0x33, 0xcc, 0x08, 0xaa]);
 	}
+
+	#[test]
+	fn run_holding_limit() {
+		// Push run holding size to its theoretical limit
+		fn make_iter(start: bool) -> impl Iterator<Item = bool> {
+			std::iter::successors(Some(start), |last| Some(!*last))
+			.take((MAX_FRAME_SIZE as usize)*2)
+		}
+
+		case(make_iter(false), &[
+			0x00,
+			0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+			0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+			0x00,
+			0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+			0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+		]);
+
+		case(make_iter(true), &[
+			0x00,
+			0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+			0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+			0x00,
+			0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+			0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+		]);
+	}
 }
 
+
+#[derive(Debug, Default)]
+struct RunHolding {
+	storage: VecDeque<Run>,
+	maxlen: usize,
+}
+
+impl RunHolding {
+	fn push_back(&mut self, run: Run) {
+		self.storage.push_back(run);
+		self.check();
+	}
+
+	fn push_front(&mut self, run: Run) {
+		self.storage.push_front(run);
+		self.check();
+	}
+
+	fn pop_front(&mut self) -> Option<Run> {
+		self.storage.pop_front()
+	}
+
+	fn check(&mut self) {
+		let newlen = self.storage.len();
+		if newlen > self.maxlen {
+			eprintln!("NEW MAXLEN: {}", newlen);
+			self.maxlen = newlen;
+		}
+	}
+}
 
 #[derive(Debug, Default)]
 struct RunBuilder {
