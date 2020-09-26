@@ -38,7 +38,7 @@ impl Encoder {
 		self.run_holding.push_back(self.run_builder.update(bit)?);
 
 		let mut holding = self.run_holding.pop_front();
-		let r = self.frame_builder.update(dbg!(&mut holding));
+		let r = self.frame_builder.update(&mut holding);
 		if let Some(not_consumed) = holding {
 			self.run_holding.push_front(not_consumed); // put it back for next time
 		}
@@ -279,7 +279,6 @@ impl StageFlow {
 		match *self {
 			StageFlow::Fill { stage_idx, stage_bit } => {
 				let raw_stage_size = stage_idx * 8 + *stage_bit;
-				eprintln!("Now flushing, raw stage size {}", raw_stage_size);
 				*self = StageFlow::Flush {
 					flush_idx: 0,
 					// copy stage_idx, add 1 if some bits have been written to
@@ -347,7 +346,7 @@ impl FrameBuilder {
 					if len < 8 { return true; } // always beneficial
 
 					let padding = (8 - *stage_bit) & 7;
-					dbg!(padding) + 8 >= len
+					padding + 8 >= len
 				})() {
 					add_run_to_frame = run.take(); // will be Some()
 				}
@@ -381,7 +380,6 @@ impl FrameBuilder {
 			*flush_idx += 1;
 			if *flush_idx >= stage_size {
 				// frame completely sent; reset
-				eprintln!("Frame sent; resetting");
 				self.reset_stage();
 			}
 			return Some(r);
