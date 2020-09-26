@@ -171,6 +171,90 @@ mod test_encoder {
 }
 
 
+#[derive(Debug)]
+pub struct IterableEncoder<S> {
+	inner: EncoderSwitch,
+	source: S,
+}
+
+pub fn encode<S: Iterator<Item = bool>>(source: S) -> IterableEncoder<S> {
+	IterableEncoder {
+		inner: EncoderSwitch::Encoder(Encoder::new()),
+		source,
+	}
+}
+
+impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
+	type Item = u8;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let encoder = match self.inner {
+			EncoderSwitch::Encoder(ref mut e) => e,
+			EncoderSwitch::Flush(ref mut f) => return f.next()
+		};
+
+		loop {
+			let src_next = match self.source.next() {
+				Some(i) => i,
+				None => break,
+			};
+
+			if let got @ Some(_) = encoder.update(src_next) {
+				return got;
+			}
+		}
+
+		// no more inputs; we may have more outputs for a flushed encoder
+		// but if here, we have to perform the switch
+		let flush = unsafe {
+			use std::{ptr,mem,hint};
+			let moved_encoder = ptr::read(encoder as *mut Encoder);
+			// TODO: this is supposed to force an end to the mut borrow, but check it in miri
+			mem::forget(encoder);
+			ptr::write(&mut self.inner as *mut _,
+				EncoderSwitch::Flush(moved_encoder.flush())
+			);
+			// now re-borrow from enum
+			match self.inner {
+				EncoderSwitch::Flush(ref mut f) => f,
+				EncoderSwitch::Encoder(_) => hint::unreachable_unchecked(),
+			}
+		};
+
+		flush.next()
+	}
+}
+
+#[derive(Debug)]
+enum EncoderSwitch {
+	Encoder(Encoder),
+	Flush(Flush),
+}
+
+#[cfg(test)]
+mod test_iterable {
+	use super::*;
+	use std::iter;
+
+	#[test]
+	fn with_runs() {
+		let src = iter::repeat(false).take(15)
+			.chain(iter::repeat(true).take(15));
+
+		assert_eq!(&[0x8f, 0xcf], &*encode(src).collect::<Vec<_>>());
+	}
+
+	#[test]
+	fn with_frames() {
+		let src = iter::successors(Some(false), |o| Some(!*o))
+			.take(20);
+
+		assert_eq!(&[0x14, 0xaa, 0xaa, 0x0a], &*encode(src).collect::<Vec<_>>());
+
+	}
+}
+
+
 #[derive(Debug, Default)]
 struct RunBuilder {
 	current: Option<Run>,

@@ -22,8 +22,8 @@
 //! assert_eq!(134, decoded.len());
 //! ```
 
-mod encode;
-mod decode;
+pub mod encode;
+pub mod decode;
 
 // 0.3
 mod io_encode;
