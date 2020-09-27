@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-	encode::Run,
+	Run,
 };
 
 pub(crate) struct RunBuffer {

@@ -2,7 +2,7 @@
 // I/O variant, 0.3.x
 
 use crate::{
-	encode::Run,
+	Run,
 	run_buffer::RunBuffer,
 	MAX_RUN_SIZE,
 	MAX_FRAME_SIZE,
