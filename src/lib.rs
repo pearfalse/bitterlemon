@@ -36,14 +36,21 @@
 //!     true, false, false, true, false, false, true, false,
 //! ], &*decoded);
 //! ```
+//!
+//! ## Data from I/O
+//!
+//! **TODO**
 
 pub mod decode;
 
 // 0.3
 mod encoding;
+mod io_decode;
 mod run_buffer;
 
 pub use encoding::encode;
+
+use std::mem::transmute;
 
 pub(crate) const MAX_RUN_SIZE: u8 = 64;
 pub(crate) const MAX_FRAME_SIZE: u8 = 128;
@@ -85,23 +92,50 @@ impl Run {
 		}
 	}
 
-	fn len_mut(&mut self) -> &mut u8 {
-		match *self {
-			Run::Set(ref mut x) => x,
-			Run::Clear(ref mut x) => x,
-		}
+	pub fn set_len(&mut self, new_len: u8) {
+		debug_assert!(new_len <= MAX_RUN_SIZE);
+		*self.len_mut() = new_len;
 	}
 
+	fn len_mut(&mut self) -> &mut u8 {
+		let len = match *self {
+			Run::Set(ref mut x) => x,
+			Run::Clear(ref mut x) => x,
+		};
+		debug_assert!(*len < crate::MAX_RUN_SIZE);
+		len
+	}
+
+	#[deprecated(note = "use contained version `try_inc` instead")]
 	pub fn increment(&mut self) {
 		let len = self.len_mut();
-		debug_assert!(*len < crate::MAX_RUN_SIZE);
 		*len = len.wrapping_add(1);
+	}
+
+	pub fn try_inc(self) -> Option<Run> {
+		self.try_step_impl(MAX_RUN_SIZE, u8::wrapping_add)
+	}
+
+	pub fn try_dec(self) -> Option<Run> {
+		self.try_step_impl(0, u8::wrapping_sub)
+	}
+
+	#[inline(always)]
+	fn try_step_impl(self, limit: u8, step_func: fn(u8, u8) -> u8) -> Option<Run> {
+		let mut new = self;
+		let new_len = new.len_mut();
+		if *new_len == limit {
+			None
+		}
+		else {
+			*new_len = step_func(*new_len, 1);
+			Some(new)
+		}
 	}
 }
 
 impl From<Run> for u8 {
 	fn from(src: Run) -> u8 {
-
 		let high_bits: u8 = match src {
 			Run::Set  (_) => 0xc0,
 			Run::Clear(_) => 0x80,
@@ -114,5 +148,54 @@ impl From<Run> for u8 {
 		};
 
 		high_bits | run_size_encoded
+	}
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+#[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
+pub(crate) enum Bit {
+	Bit0 = 0,
+	Bit1 = 1,
+	Bit2 = 2,
+	Bit3 = 3,
+	Bit4 = 4,
+	Bit5 = 5,
+	Bit6 = 6,
+	Bit7 = 7,
+}
+
+impl Bit {
+	fn inc(self) -> (Self, bool) {
+		use Bit::*;
+		if self == Bit7 {
+			(Bit0, true)
+		} else {
+			(unsafe {
+				// OOB case was checked above
+				transmute((self as u8).wrapping_add(1))
+			}, false)
+		}
+	}
+
+	fn dec(self) -> (Self, bool) {
+		use Bit::*;
+		if self == Bit0 {
+			(Bit7, true)
+		} else {
+			(unsafe {
+				// OOB case was checked above
+				transmute((self as u8).wrapping_sub(1))
+			}, false)
+		}
+	}
+}
+
+impl std::ops::Deref for Bit {
+	type Target = u8;
+	fn deref(&self) -> &Self::Target {
+		// u8 is a strict superset of Self, and we don't impl DerefMut
+		unsafe { transmute(self) }
 	}
 }

@@ -10,6 +10,10 @@ use crate::{
 	Run,
 };
 
+/// Holds runs with a rudimentary deque-style interface.
+///
+/// Runs can queue up when frequently-changing bits are inserted into the encoder state,
+/// which is too busy outputting a frame to ingest them.
 pub(crate) struct RunBuffer {
 	store: [MaybeUninit<Run>; Self::capacity() as usize],
 	head: u8,
@@ -42,6 +46,11 @@ impl RunBuffer {
 		}
 	}
 
+	// This is set from a combination of the bitterlemon algorithm and the current implementation;
+	// the number comes from
+	// - 16 bytes for a full frame
+	// - + 1 byte frame header
+	// - + 1 extra run in flight for that call
 	pub const fn capacity() -> u8 { 18 }
 
 	#[inline(always)]

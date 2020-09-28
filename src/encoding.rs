@@ -3,21 +3,20 @@
 
 use crate::{
 	Run,
+	Bit,
 	run_buffer::RunBuffer,
 	MAX_RUN_SIZE,
 	MAX_FRAME_SIZE,
 };
 
 use std::{
-	mem::{replace, transmute},
+	mem::replace,
 };
 
 #[derive(Debug, Default)]
 pub struct Encoder {
 	run_builder: RunBuilder,
 	frame_builder: FrameBuilder,
-	// TODO: this will have a max capacity it can *ever* grow to, and we can
-	// replace the Vec with ArrayVec or somesuch
 	run_holding: RunBuffer,
 }
 
@@ -171,6 +170,8 @@ mod test_encoder {
 }
 
 
+// @@@ IterableEncoder
+
 #[derive(Debug)]
 pub struct IterableEncoder<S> {
 	inner: EncoderSwitch,
@@ -253,6 +254,8 @@ mod test_iterable {
 }
 
 
+// @@@ internals
+
 #[derive(Debug, Default)]
 struct RunBuilder {
 	current: Option<Run>,
@@ -323,56 +326,7 @@ mod test_run_builder {
 	}
 }
 
-
 const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-#[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
-enum Bit {
-	Bit0 = 0,
-	Bit1 = 1,
-	Bit2 = 2,
-	Bit3 = 3,
-	Bit4 = 4,
-	Bit5 = 5,
-	Bit6 = 6,
-	Bit7 = 7,
-}
-
-impl Bit {
-	fn inc(self) -> (Self, bool) {
-		use Bit::*;
-		if self == Bit7 {
-			(Bit0, true)
-		} else {
-			(unsafe {
-				// OOB case was checked above
-				transmute((self as u8).wrapping_add(1))
-			}, false)
-		}
-	}
-
-	fn dec(self) -> (Self, bool) {
-		use Bit::*;
-		if self == Bit0 {
-			(Bit7, true)
-		} else {
-			(unsafe {
-				// OOB case was checked above
-				transmute((self as u8).wrapping_sub(1))
-			}, false)
-		}
-	}
-}
-
-impl std::ops::Deref for Bit {
-	type Target = u8;
-	fn deref(&self) -> &Self::Target {
-		// u8 is a strict superset of Self, and we don't impl DerefMut
-		unsafe { transmute(self) }
-	}
-}
 
 #[derive(Debug)]
 enum StageFlow {
