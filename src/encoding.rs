@@ -207,10 +207,8 @@ impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
 		// no more inputs; we may have more outputs for a flushed encoder
 		// but if here, we have to perform the switch
 		let flush = unsafe {
-			use std::{ptr,mem,hint};
+			use std::{ptr,hint};
 			let moved_encoder = ptr::read(encoder as *mut Encoder);
-			// TODO: this is supposed to force an end to the mut borrow, but check it in miri
-			mem::forget(encoder);
 			ptr::write(&mut self.inner as *mut _,
 				EncoderSwitch::Flush(moved_encoder.flush())
 			);
