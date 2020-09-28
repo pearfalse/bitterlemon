@@ -102,7 +102,7 @@ impl Run {
 			Run::Set(ref mut x) => x,
 			Run::Clear(ref mut x) => x,
 		};
-		debug_assert!(*len < crate::MAX_RUN_SIZE);
+		debug_assert!(*len <= crate::MAX_RUN_SIZE);
 		len
 	}
 
@@ -117,7 +117,7 @@ impl Run {
 	}
 
 	pub fn try_dec(self) -> Option<Run> {
-		self.try_step_impl(0, u8::wrapping_sub)
+		self.try_step_impl(1, u8::wrapping_sub)
 	}
 
 	#[inline(always)]
@@ -148,6 +148,17 @@ impl From<Run> for u8 {
 		};
 
 		high_bits | run_size_encoded
+	}
+}
+
+#[cfg(test)]
+mod test_run {
+	use super::Run;
+
+	#[test]
+	fn try_dec() {
+		assert_eq!(Some(Run::Set(2)), Run::Set(3).try_dec());
+		assert_eq!(None, Run::Set(1).try_dec());
 	}
 }
 

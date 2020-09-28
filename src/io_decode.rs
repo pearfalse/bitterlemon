@@ -7,10 +7,12 @@ use crate::{
 	MAX_RUN_SIZE,
 };
 
+use std::iter::FusedIterator;
+
 #[derive(Debug)]
 enum Contents {
 	Frame {
-		stage: u8,
+		stage: Option<u8>,
 		stage_bit: Bit,
 		bits_remaining: u8,
 	},
@@ -28,19 +30,25 @@ impl Decoder {
 		Decoder::default()
 	}
 
-	pub fn raw_update(&mut self, input: &mut Option<u8>) -> Option<bool> {
+	pub fn raw_update(&mut self, input: &mut Option<u8>)
+	-> Result<Option<bool>, TruncatedInputError> {
+		dbg!(&self.contents, &input);
 		let contents: &mut Contents = match self.contents {
 			Some(ref mut c) => c,
-			None => match input.take()? {
-				b if b < 0x80 => {
+			None => match input.take() {
+				Some(b) if b < 0x80 => {
+					// new frame time
 					self.contents = Some(Contents::Frame {
-						stage: 0,
+						stage: None,
 						stage_bit: Bit::Bit0,
-						bits_remaining: b,
+						bits_remaining: match b {
+							0 => MAX_FRAME_SIZE,
+							n => n,
+						},
 					});
-					return None; // need another byte
+					return Ok(None); // need another byte
 				},
-				b => {
+				Some(b) => {
 					let mut r = Run::new(b & 0x40 != 0);
 					r.set_len(match b & 0x3f {
 						0 => MAX_RUN_SIZE,
@@ -56,19 +64,43 @@ impl Decoder {
 						}
 					}
 				},
+				None => return Ok(None)
 			}
 		};
 
 		match *contents {
-			Contents::Frame { stage, ref mut stage_bit, ref mut bits_remaining } => {
-				let bit = (stage & **stage_bit) != 0;
-				let (new_bit, _) = stage_bit.dec();
+			Contents::Frame {
+				stage: ref mut maybe_stage,
+				ref mut stage_bit,
+				ref mut bits_remaining
+			} => {
+				let stage = match *maybe_stage {
+					Some(ref mut st) => st,
+					None => {
+						// next byte of stage, please
+						let next_stage = input.take()
+						.ok_or_else(|| TruncatedInputError::from_bits(*bits_remaining))?;
+						// assign to *maybe_stage, and reborrow
+						*maybe_stage = Some(next_stage);
+						match maybe_stage {
+							Some(yes) => yes,
+							None => unsafe {
+								std::hint::unreachable_unchecked()
+							}
+						}
+					}
+				};
+				// grab next bit from frame
+				let bit = (*stage & (1 << **stage_bit)) != 0;
+				let (new_bit, wrapped) = stage_bit.inc();
 				*stage_bit = new_bit;
 				*bits_remaining -= 1;
 				if *bits_remaining == 0 {
-					self.contents = None;
+					*dbg!(&mut self.contents) = None;
+				} else if wrapped {
+					*maybe_stage = None; // clear stage
 				}
-				Some(bit)
+				Ok(Some(bit))
 			},
 			Contents::Run(ref mut run) => {
 				let bit = run.bit();
@@ -77,7 +109,7 @@ impl Decoder {
 				} else {
 					self.contents = None; // run is exhausted
 				}
-				Some(bit)
+				Ok(Some(bit))
 			}
 		}
 	}
@@ -88,6 +120,15 @@ impl Decoder {
 pub struct TruncatedInputError {
 	pub bits_lost: u8,
 	pub bytes_expected: u8,
+}
+
+impl TruncatedInputError {
+	fn from_bits(bits: u8) -> TruncatedInputError {
+		TruncatedInputError {
+			bits_lost: bits,
+			bytes_expected: (bits + 7) / 8,
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -101,37 +142,29 @@ impl<S: Iterator<Item = u8>> Iterator for IterableDecoder<S> {
 	type Item = Result<bool, TruncatedInputError>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		// early try
-		if let Some(early_success) = self.decoder.raw_update(&mut None) {
-			return Some(Ok(early_success));
-		}
-
-		eprintln!("early try yielded nothing");
-
-		// if still no cached, we need an input to have an output
-		let _old_cached = self.cached;
-		if self.cached.is_none() {
-			self.cached = self.source.next();
-		}
-		eprintln!("cached went from {:?} to {:?}", _old_cached, self.cached);
-
-		// *still* no input? either we've reached EOF or input was truncated
-		if self.cached.is_none() {
-			if let Some(Contents::Frame {
-				stage: _, stage_bit: _, bits_remaining
-			}) = self.decoder.contents {
-				return Some(Err(TruncatedInputError {
-					bits_lost: bits_remaining,
-					bytes_expected: (bits_remaining + 7) & 7,
-				}));
+		loop {
+			if self.cached.is_none() {
+				self.cached = self.source.next();
 			}
 
-			return None;
-		}
+			let has_input = self.cached.is_some();
+			let _proof = self.cached;
+			match self.decoder.raw_update(&mut self.cached) {
+				Ok(Some(bit)) => break Some(Ok(bit)),
+				Err(e) => break Some(Err(e)),
+				Ok(None) if has_input => {
+					// frame header
+					debug_assert!(_proof.unwrap() < 0x80);
 
-		self.decoder.raw_update(&mut self.cached).map(Result::Ok)
+					continue;
+				},
+				Ok(None) => return None // assume EOF
+			}
+		}
 	}
 }
+
+impl<S: Iterator<Item = u8>> FusedIterator for IterableDecoder<S> { }
 
 
 pub fn decode<S: IntoIterator<Item = u8>>(source: S)
@@ -189,19 +222,20 @@ mod test_iterable_decoder {
 	#[test]
 	fn single_byte_frame() {
 		let case = |byte_in: u8, bool_out: bool| {
+			eprintln!("CASE: {:02x}", byte_in);
 			let mut iter = decoder![0x01, byte_in];
-			assert_eq!(iter.next(), Some(Ok(bool_out)));
+			assert_eq!(Some(Ok(bool_out)), iter.next());
 		};
 
 		case(0xff, true);
 		case(0x00, false);
-		case(0x80, true);
-		case(0x7f, false);
+		case(0x01, true);
+		case(0xfe, false);
 	}
 
 	#[test]
 	fn full_byte_frame() {
-		let mut iter = decoder![0x08, 0x55];
+		let mut iter = decoder![0x08, 0xaa];
 
 		let mut expected = false;
 		for _ in 0..8 {
@@ -214,7 +248,7 @@ mod test_iterable_decoder {
 
 	#[test]
 	fn two_byte_frame() {
-		let mut iter = decoder![0x0f, 0x55, 0x55];
+		let mut iter = decoder![0x0f, 0xaa, 0xaa];
 
 		let mut expected = false;
 		for _ in 0..15 {
@@ -239,10 +273,10 @@ mod test_iterable_decoder {
 			assert_eq!(iter.next(), None);
 		};
 
-		case(&[0xc1, 0x10, 0x55, 0x55, 0x81], 18, true);
-		case(&[0x81, 0x10, 0xaa, 0xaa, 0xc1], 18, false);
-		case(&[0x08, 0xaa, 0xc1, 0x08, 0x55], 17, true);
-		case(&[0x08, 0x55, 0x81, 0x08, 0xaa], 17, false);
+		case(&[0xc1, 0x10, 0xaa, 0xaa, 0x81], 18, true);
+		case(&[0x81, 0x10, 0x55, 0x55, 0xc1], 18, false);
+		case(&[0x08, 0x55, 0xc1, 0x08, 0xaa], 17, true);
+		case(&[0x08, 0xaa, 0x81, 0x08, 0x55], 17, false);
 	}
 
 	#[test]
