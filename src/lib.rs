@@ -25,7 +25,7 @@
 //! Decoding is similar, except that not all byte inputs produce a valid output:
 //!
 //! ```
-//! let encoded = b"\xc8\x08\x92";
+//! let encoded = b"\xc8\x08\x49";
 //! let decoded : Result<Vec<_>, _> = bitterlemon::decode(encoded.iter().copied())
 //!     .collect();
 //!
@@ -37,29 +37,40 @@
 //! ], &*decoded);
 //! ```
 //!
-//! ## Data from I/O
+//! ## Truncated input
 //!
-//! **TODO**
+//! Bitterlemon can detect truncated input, which is the only way that an arbitrary
+//! input would not decode to a valid bit stream:
+//!
+//! ```
+//! let encoded = b"\x13\xf6"; // uh oh, this needs another 2 bytes to hold another 11 bits
+//! let result = bitterlemon::decode(encoded.iter().copied())
+//!     .collect::<Result<Vec<_>, _>>();
+//!
+//! let error: bitterlemon::TruncatedInputError = result.unwrap_err();
+//! assert_eq!(11, error.bits_lost);
+//! assert_eq!(2, error.bytes_expected);
+//! ```
 
-pub mod decode;
 
-// 0.3
 mod encoding;
-mod io_decode;
+mod decoding;
 mod run_buffer;
 
-pub use encoding::encode;
+pub use encoding::{
+	encode,
+	Encoder,
+};
 
 use std::mem::transmute;
 
 pub(crate) const MAX_RUN_SIZE: u8 = 64;
 pub(crate) const MAX_FRAME_SIZE: u8 = 128;
 
-pub use decode::{
+pub use decoding::{
 	decode,
 	Decoder,
-	DecodeResult,
-	Error,
+	TruncatedInputError,
 };
 
 
