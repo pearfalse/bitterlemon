@@ -32,7 +32,6 @@ impl Decoder {
 
 	pub fn raw_update(&mut self, input: &mut Option<u8>)
 	-> Result<Option<bool>, TruncatedInputError> {
-		dbg!(&self.contents, &input);
 		let contents: &mut Contents = match self.contents {
 			Some(ref mut c) => c,
 			None => match input.take() {
@@ -96,7 +95,7 @@ impl Decoder {
 				*stage_bit = new_bit;
 				*bits_remaining -= 1;
 				if *bits_remaining == 0 {
-					*dbg!(&mut self.contents) = None;
+					self.contents = None;
 				} else if wrapped {
 					*maybe_stage = None; // clear stage
 				}
