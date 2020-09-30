@@ -9,10 +9,8 @@ repository = "https://github.com/pearfalse/bitterlemon"
 categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
 
-[dependencies]
-arrayvec = ">= 0.4"
-
 [dev-dependencies]
+arrayvec = ">= 0.5"
 criterion = "0.3"
 random = ">= 0.12"
 hex-slice = "0.1.4"
