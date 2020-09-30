@@ -154,29 +154,54 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 	Ok(())
 }
 
-#[derive(Debug)]
-struct ByteUnpackLsbFirst {
-	stage: u8,
-	bit: Option<bl::Bit>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum BitDirection {
+	LsbFirst,
+	MsbFirst,
 }
 
-impl ByteUnpackLsbFirst {
-	fn new(byte: u8) -> ByteUnpackLsbFirst {
-		ByteUnpackLsbFirst {
-			stage: byte,
-			bit: Some(bl::Bit::Bit0),
+impl BitDirection {
+	fn start_bit(self) -> bl::Bit {
+		match self {
+			BitDirection::LsbFirst => bl::Bit::Bit0,
+			BitDirection::MsbFirst => bl::Bit::Bit7,
+		}
+	}
+
+	fn advance_function(self) -> fn(bl::Bit) -> (bl::Bit, bool) {
+		match self {
+			BitDirection::LsbFirst => bl::Bit::inc,
+			BitDirection::MsbFirst => bl::Bit::dec,
 		}
 	}
 }
 
-impl Iterator for ByteUnpackLsbFirst {
+#[derive(Debug)]
+struct ByteUnpack {
+	stage: u8,
+	bit: Option<bl::Bit>,
+	direction: BitDirection,
+}
+
+impl ByteUnpack {
+	fn new(byte: u8, direction: BitDirection) -> ByteUnpack {
+		ByteUnpack {
+			stage: byte,
+			bit: Some(direction.start_bit()),
+			direction,
+		}
+	}
+}
+
+impl Iterator for ByteUnpack {
 	type Item = bool;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.bit.map(|bit| {
 			let mask = 1 << *bit;
 			let r = (self.stage & mask) != 0;
-			let (new_bit, wrapped) = bit.inc();
+			let (new_bit, wrapped) = (self.direction.advance_function())(bit);
 			self.bit = match wrapped {
 				false => Some(new_bit),
 				true => None,
@@ -187,26 +212,29 @@ impl Iterator for ByteUnpackLsbFirst {
 }
 
 #[derive(Debug)]
-struct SliceUnpackLsbFirst<S> {
-	stage: Option<ByteUnpackLsbFirst>,
+struct SliceUnpack<S> {
 	source: S,
+	stage: Option<ByteUnpack>,
+	direction: BitDirection,
 }
 
-impl<T: Borrow<u8>, S: IntoIterator<Item = T>> SliceUnpackLsbFirst<S> {
-	fn new(source: S) -> SliceUnpackLsbFirst<S::IntoIter> {
+impl<T: Borrow<u8>, S: IntoIterator<Item = T>> SliceUnpack<S> {
+	fn new(source: S, direction: BitDirection) -> SliceUnpack<S::IntoIter> {
 		let mut source = source.into_iter();
-		SliceUnpackLsbFirst {
-			stage: source.next().map(new_stage),
+		let first_byte = source.next().map(|t| new_stage(t, direction));
+		SliceUnpack {
 			source,
+			stage: first_byte,
+			direction,
 		}
 	}
 }
 
-fn new_stage<T: Borrow<u8>>(t: T) -> ByteUnpackLsbFirst {
-	ByteUnpackLsbFirst::new(*t.borrow())
+fn new_stage<T: Borrow<u8>>(t: T, direction: BitDirection) -> ByteUnpack {
+	ByteUnpack::new(*t.borrow(), direction)
 }
 
-impl<T: Borrow<u8>, S: Iterator<Item = T>> Iterator for SliceUnpackLsbFirst<S> {
+impl<T: Borrow<u8>, S: Iterator<Item = T>> Iterator for SliceUnpack<S> {
 	type Item = bool;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -214,7 +242,53 @@ impl<T: Borrow<u8>, S: Iterator<Item = T>> Iterator for SliceUnpackLsbFirst<S> {
 			if let next @ Some(_) = self.stage.as_mut()?.next() {
 				return next;
 			}
-			self.stage = self.source.next().map(new_stage);
+			self.stage = self.source.next().map(|n| new_stage(n, self.direction));
+		}
+	}
+}
+
+#[cfg(test)]
+mod test_byte_unpacking {
+	use super::*;
+
+	const SIXTEEN_BITS: [bool; 16] = [
+		true, false, false, true,
+		false, false, true, false,
+		false, true, false, false,
+		true, false, true, false,
+	];
+
+	type Collect1 = arrayvec::ArrayVec<[bool; 8]>;
+	type Collect2 = arrayvec::ArrayVec<[bool; 16]>;
+
+	#[test]
+	fn one_byte() {
+		for (source1, source2, direction) in [
+			(0x49, 0x52, BitDirection::LsbFirst),
+			(0x92, 0x4a, BitDirection::MsbFirst),
+		].iter().copied() {
+			println!("first half, {:?}", direction);
+			let generated = ByteUnpack::new(source1, direction)
+			.collect::<Collect1>();
+			assert_eq!(&SIXTEEN_BITS[..8], &*generated);
+
+			println!("second half, {:?}", direction);
+			let generated = ByteUnpack::new(source2, direction)
+			.collect::<Collect1>();
+			assert_eq!(&SIXTEEN_BITS[8..], &*generated);
+		}
+	}
+
+	#[test]
+	fn two_bytes() {
+		for (source, direction) in [
+			([0x49, 0x52], BitDirection::LsbFirst),
+			([0x92, 0x4a], BitDirection::MsbFirst),
+		].iter().copied() {
+			println!("direction: {:?}", direction);
+			let generated = SliceUnpack::new(&source[..], direction)
+			.collect::<Collect2>();
+			assert_eq!(&SIXTEEN_BITS[..], &*generated);
 		}
 	}
 }
