@@ -192,6 +192,15 @@ mod test_run_buffer {
 	}
 
 	#[test]
+	fn test_loop_stability() {
+		let mut rb = RunBuffer::new();
+		for _ in 0..(RunBuffer::capacity() * 10) {
+			rb.push_back(Run::Set(1)).unwrap();
+			assert_eq!(Some(Run::Set(1)), rb.pop_front());
+		}
+	}
+
+	#[test]
 	fn pop_front() {
 		let mut rb = RunBuffer::new();
 		rb.push_front(Run::Set(1)).unwrap();

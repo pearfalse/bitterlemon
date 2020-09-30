@@ -134,13 +134,16 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 		if buf.is_empty() {
 			break 'chunks;
 		}
+		let buf_len = buf.len();
 		let mut bits = SliceUnpackLsbFirst::new(buf);
 
 		while let Some(bit) = bits.next() {
 			if let Some(output) = encoder.update(bit) {
+				eprintln!("got byte: {:02x}", output);
 				output_file.write(&[output][..]).map_err(io_output_error)?;
 			}
 		}
+		input_file.consume(buf_len);
 	}
 
 	// input is empty

@@ -32,16 +32,25 @@ impl Encoder {
 	/// when this method returns `None` after being passed `None` as the `bit` argument.
 	/// At this point, you can simply drop the Encoder.
 	pub fn update(&mut self, bit: bool) -> Option<u8> {
-		// when a bit is passed in, but no run comes out, return immediately --
-		// do NOT pass None to frame_builder, which will infer that as source EOF
-		self.run_holding.push_back(self.run_builder.update(bit)?)
-			.expect("Encoder::update/1: RunBuffer overflow");
+		if let Some(next_run) = self.run_builder.update(bit) {
+			self.run_holding.push_back(next_run)
+				.expect("Encoder::update/1: RunBuffer overflow");
+		}
 
-		let mut holding = self.run_holding.pop_front();
+		// try continuining to flush an existing frame
+		if let run_byte @ Some(_) = self.frame_builder.try_reduce_run() {
+			return run_byte;
+		}
+
+		// if there's no run to pass through the frame builder, return immediately
+		// otherwise, it'll be taken as a sign to immediately flush the run
+		let mut holding = Some(self.run_holding.pop_front()?);
 		let r = self.frame_builder.update(&mut holding);
 		if let Some(not_consumed) = holding {
 			self.run_holding.push_front(not_consumed) // put it back for next time
 			.expect("Encoder::update/2: RunBuffer overflow");
+			debug_assert!(r.is_some()); // if frame builder didn't consume the bit,
+			// it had better be outputting a frame
 		}
 		r
 	}
@@ -111,15 +120,18 @@ mod test_encoder {
 		for bit in input {
 			// new bit from input
 			if let Some(output) = encoder.update(bit) {
-				assert_eq!(output_iter.next(), Some(output));
+				let next = output_iter.next();
+				assert_eq!(next, Some(output),
+					"{:02x} vs {:02x}", next.unwrap_or(0), output);
 			}
 		}
 
-		eprintln!("source iterator dried up");
 		let mut flush = encoder.flush();
 
 		for got in &mut flush {
-			assert_eq!(output_iter.next(), Some(got));
+			let next = output_iter.next();
+			assert_eq!(next, Some(got),
+				"{:02x} vs {:02x}", next.unwrap_or(0), got);
 		}
 
 		assert_eq!(None, output_iter.next());
@@ -441,15 +453,8 @@ impl FrameBuilder {
 			return Some(header);
 		}
 
-		if let StageFlow::Flush { ref mut flush_idx, stage_size } = self.stage_flow {
-			// flush byte of frame, leave 0 behind
-			let r = replace(&mut self.frame_stage[*flush_idx as usize], 0);
-			*flush_idx += 1;
-			if *flush_idx >= stage_size {
-				// frame completely sent; reset
-				self.reset_stage();
-			}
-			return Some(r);
+		if let byte @ Some(_) = self.try_reduce_run() {
+			return byte;
 		}
 
 		if let Some(run) = add_run_to_frame {
@@ -461,6 +466,20 @@ impl FrameBuilder {
 			// pump run out
 			run.take().map(u8::from)
 		}
+	}
+
+	fn try_reduce_run(&mut self) -> Option<u8> {
+		if let StageFlow::Flush { ref mut flush_idx, stage_size } = self.stage_flow {
+			// flush byte of frame, leave 0 behind
+			let r = replace(&mut self.frame_stage[*flush_idx as usize], 0);
+			*flush_idx += 1;
+			if *flush_idx >= stage_size {
+				// frame completely sent; reset
+				self.reset_stage();
+			}
+			return Some(r);
+		}
+		None
 	}
 
 	fn pour_run_into_frame(&mut self, run: Run) {
