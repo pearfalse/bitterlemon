@@ -177,7 +177,7 @@ mod test_run {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
-pub(crate) enum Bit {
+pub enum Bit {
 	Bit0 = 0,
 	Bit1 = 1,
 	Bit2 = 2,
@@ -189,7 +189,7 @@ pub(crate) enum Bit {
 }
 
 impl Bit {
-	fn inc(self) -> (Self, bool) {
+	pub fn inc(self) -> (Self, bool) {
 		use Bit::*;
 		if self == Bit7 {
 			(Bit0, true)
@@ -201,7 +201,7 @@ impl Bit {
 		}
 	}
 
-	fn dec(self) -> (Self, bool) {
+	pub fn dec(self) -> (Self, bool) {
 		use Bit::*;
 		if self == Bit0 {
 			(Bit7, true)
