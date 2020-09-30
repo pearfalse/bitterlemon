@@ -54,8 +54,8 @@ impl fmt::Display for Error {
 }
 
 fn main() {
-	let mut stdin = io::stdin();
-	let mut stdout = io::stdout();
+	let stdin = io::stdin();
+	let stdout = io::stdout();
 	let mut stderr = io::stderr();
 
 	let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -79,7 +79,7 @@ fn main() {
 		std::process::exit(2);
 	}
 
-	std::process::exit(match main2(opts, &mut stdin, &mut stdout) {
+	std::process::exit(match main2(opts, stdin.lock(), stdout.lock()) {
 		Ok(()) => 0,
 		Err(e) => {
 			let mut lock = stderr.lock();
@@ -89,9 +89,12 @@ fn main() {
 	});
 }
 
-fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdout)
--> Result<(), Error> {
-	type Input<'a> = dyn io::Read + 'a;
+fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
+	args: BlOptions,
+	mut stdin: In,
+	mut stdout: Out,
+) -> Result<(), Error> {
+	type Input<'a> = dyn io::BufRead + 'a;
 	type Output<'a> = dyn io::Write + 'a;
 
 	let (io_input_error, io_output_error) = (
@@ -99,27 +102,24 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 		|e: io::Error| Error::Io(args.output_file.clone(), e),
 	);
 
-	let (mut input_file_fs, mut input_file_stdio);
-	let mut input_file = io::BufReader::with_capacity(
-		BUF_SIZE,
-		if args.input_file == STDIO_ARG {
-			input_file_stdio = stdin.lock();
-			&mut input_file_stdio as &mut Input<'a>
-		} else {
-			input_file_fs = OpenOptions::new()
-				.read(true)
-				.open(&args.input_file)
-				.map_err(io_input_error)?;
-			&mut input_file_fs as &mut Input<'a>
-		}
-	);
+	let mut input_file_fs;
+	let input_file = if args.input_file == STDIO_ARG {
+		&mut stdin as &mut Input<'a>
+	} else {
+		input_file_fs = OpenOptions::new()
+			.read(true)
+			.open(&args.input_file)
+			// StdinLock impls BufReader, but File doesn't
+			.map(|f| io::BufReader::with_capacity(BUF_SIZE, f))
+			.map_err(io_input_error)?;
+		&mut input_file_fs as &mut Input<'a>
+	};
 
-	let (mut output_file_fs, mut output_file_stdio);
+	let mut output_file_fs;
+	// We need buffered writes on all outputs
 	let mut output_file = io::BufWriter::with_capacity(
-		BUF_SIZE,
-		if args.output_file == STDIO_ARG {
-			output_file_stdio = stdout.lock();
-			&mut output_file_stdio as &mut Output<'a>
+		BUF_SIZE, if args.output_file == STDIO_ARG {
+			&mut stdout as &mut Output<'a>
 		} else {
 			output_file_fs = OpenOptions::new()
 				.write(true)
