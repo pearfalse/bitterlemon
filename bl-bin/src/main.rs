@@ -35,6 +35,7 @@ struct BlOptions {
 enum Error {
 	Io(String, io::Error),
 	Decode(bl::TruncatedInputError), // encoding is infallible
+	NotSupported(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -46,6 +47,8 @@ impl fmt::Display for Error {
 				write!(f, "input stops too early (expected another {} bytes, \
 				lost {} bits of output", ble.bytes_expected, ble.bits_lost)
 			},
+			NotSupported(feature) => write!(f,
+				"sorry, feature '{}' is not supported yet", feature),
 		}
 	}
 }
@@ -129,30 +132,59 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 	);
 
 	let mut encoder = bl::Encoder::new();
+	let bit_direction = if args.msb_first { BitDirection::MsbFirst }
+	else { BitDirection::LsbFirst };
 
-	'chunks: loop {
-		let buf = input_file.fill_buf().map_err(io_input_error)?;
-		if buf.is_empty() {
-			break 'chunks;
-		}
-		let buf_len = buf.len();
-		let mut bits = SliceUnpackLsbFirst::new(buf);
-
-		while let Some(bit) = bits.next() {
-			if let Some(output) = encoder.update(bit) {
-				output_file.write(&[output][..]).map_err(io_output_error)?;
+	if ! args.decode {
+		'chunks: loop {
+			let buf = input_file.fill_buf().map_err(io_input_error)?;
+			if buf.is_empty() {
+				break 'chunks;
 			}
-		}
-		input_file.consume(buf_len);
-	}
+			let buf_len = buf.len();
+			let mut bits = SliceUnpack::new(buf, bit_direction);
 
-	// input is empty
-	for trailing_byte in encoder.flush() {
-		output_file.write(&[trailing_byte][..]).map_err(io_output_error)?;
+			while let Some(bit) = bits.next() {
+				if let Some(output) = encoder.update(bit) {
+					output_file.write(&[output][..]).map_err(io_output_error)?;
+				}
+			}
+			input_file.consume(buf_len);
+		}
+
+		// input is empty
+		for trailing_byte in encoder.flush() {
+			output_file.write(&[trailing_byte][..]).map_err(io_output_error)?;
+		}
+	}
+	else {
+		return Err(Error::NotSupported("decoding"));
 	}
 
 	Ok(())
 }
+
+#[cfg(test)]
+mod test_main {
+	use super::*;
+
+	#[test]
+	fn decoding_not_supported_yet() {
+		// it will be eventually, promise
+		let result = main2(BlOptions {
+			help: false,
+			input_file: String::from("input"),
+			output_file: String::from("output"),
+			msb_first: false,
+			decode: true,
+		}, std::io::empty(), DummyIoWrite);
+
+		assert!(matches!(
+			result, Err(Error::NotSupported(_))
+		));
+	}
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -290,5 +322,19 @@ mod test_byte_unpacking {
 			.collect::<Collect2>();
 			assert_eq!(&SIXTEEN_BITS[..], &*generated);
 		}
+	}
+}
+
+#[cfg(test)]
+struct DummyIoWrite;
+
+#[cfg(test)]
+impl Write for DummyIoWrite {
+	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+		Ok(buf.len())
+	}
+
+	fn flush(&mut self) -> io::Result<()> {
+		Ok(())
 	}
 }
