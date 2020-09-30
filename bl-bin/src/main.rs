@@ -121,6 +121,7 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 			output_file_fs = OpenOptions::new()
 				.write(true)
 				.truncate(true)
+				.create(true)
 				.open(&args.output_file)
 				.map_err(io_output_error)?;
 			&mut output_file_fs as &mut Output<'a>
@@ -139,7 +140,6 @@ fn main2<'a>(args: BlOptions, stdin: &'a mut io::Stdin, stdout: &'a mut io::Stdo
 
 		while let Some(bit) = bits.next() {
 			if let Some(output) = encoder.update(bit) {
-				eprintln!("got byte: {:02x}", output);
 				output_file.write(&[output][..]).map_err(io_output_error)?;
 			}
 		}
