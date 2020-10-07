@@ -119,23 +119,23 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 
 	let mut output_file_fs;
 	// We need buffered writes on all outputs
-	let mut output_file = io::BufWriter::with_capacity(
-		BUF_SIZE, if args.output_file == STDIO_ARG {
+	let output_file = if args.output_file == STDIO_ARG {
 			&mut stdout as &mut Output<'a>
-		} else {
-			output_file_fs = OpenOptions::new()
-				.write(true)
-				.truncate(true)
-				.create(true)
-				.open(&args.output_file)
-				.map_err(io_output_error)?;
-			&mut output_file_fs as &mut Output<'a>
-		}
-	);
+	} else {
+		output_file_fs = OpenOptions::new()
+			.write(true)
+			.truncate(true)
+			.create(true)
+			.open(&args.output_file)
+			.map_err(io_output_error)?;
+		&mut output_file_fs as &mut Output<'a>
+	};
 
 	let mut encoder = bl::Encoder::new();
+	let mut decoder = bl::Decoder::new();
 	let bit_direction = if args.msb_first { BitDirection::MsbFirst }
 	else { BitDirection::LsbFirst };
+	let mut obuf = Vec::with_capacity(BUF_SIZE);
 
 	if ! args.decode {
 		'enc: loop {
@@ -144,52 +144,93 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 				break 'enc;
 			}
 			let buf_len = buf.len();
+			// give us the input buffer as an iterator of bits
 			let mut bits = SliceUnpack::new(buf, bit_direction);
 
 			while let Some(bit) = bits.next() {
-				if let Some(output) = encoder.update(bit) {
-					output_file.write(&[output][..]).map_err(io_output_error)?;
+				// pushing a new bit might have given us a full byte to write out
+				let enc_byte = match encoder.update(bit) {
+					Some(byte) => byte,
+					None => continue
+				};
+
+				obuf.push(enc_byte);
+				if obuf.len() == obuf.capacity() {
+					// output buffer full; push it to io object
+					output_file.write(&*obuf).map_err(io_output_error)?;
+					obuf.clear();
 				}
 			}
 			input_file.consume(buf_len);
 		}
 
 		// input is empty
-		for trailing_byte in encoder.flush() {
-			output_file.write(&[trailing_byte][..]).map_err(io_output_error)?;
-		}
+		output_file.write(&*obuf).map_err(io_output_error)?;
 	}
 	else {
-		return Err(Error::NotSupported("decoding"));
+		// this converts our decoded bits into bytes for i/o
+		let mut packer = BytePack::new(bit_direction);
+		'dec: loop {
+			let buf = input_file.fill_buf().map_err(io_input_error)?;
+			if buf.is_empty() {
+				break 'dec;
+			}
+			let buf_len = buf.len();
+			// turn input buffer into an iterator of bytes
+			let mut buf = buf.into_iter().copied();
+
+			let mut stage = None;
+
+			// we need to loop until all input bytes are consumed, *and* no more output bits appear
+			'bits: loop {
+				if stage.is_none() {
+					// input byte was consumed; try refilling it
+					stage = buf.next();
+				}
+
+				let had_input_byte = stage.is_some();
+
+				let next_bit = match decoder.raw_update(&mut stage).map_err(Error::Decode)? {
+					Some(b) => b,
+					None => if had_input_byte {
+						// decoder consumed our input byte, that's fine
+						continue 'bits
+					} else {
+						// no input, no output, we're done here
+						break 'bits
+					}
+				};
+				match packer.pack(next_bit) {
+					Some(byte) => {
+						// this is a pure output byte
+						obuf.push(byte);
+						if obuf.len() == obuf.capacity() {
+							output_file.write(&*obuf).map_err(io_output_error)?;
+							obuf.clear();
+						}
+					},
+					None => continue 'bits // probably just still packing, that's fine
+				}
+			}
+
+			input_file.consume(buf_len);
+		}
 	}
 
+	match &*obuf {
+		&[] => {},
+		other => {
+			output_file.write(other).map_err(io_output_error)?;
+		}
+	};
 	output_file.flush().map_err(io_output_error)
 }
+
 
 #[cfg(test)]
 mod test_main {
 	use super::*;
 
-	#[test]
-	fn decoding_not_supported_yet() {
-		// it will be eventually, promise
-		let result = main2(BlOptions {
-			help: false,
-			input_file: String::from("input"),
-			output_file: String::from("output"),
-			msb_first: false,
-			decode: true,
-		}, std::io::empty(), DummyIoWrite);
-
-		assert!(matches!(
-			result, Err(Error::NotSupported(_))
-		));
-	}
-
-	#[test]
-	fn encode() {
-
-	}
 }
 
 
