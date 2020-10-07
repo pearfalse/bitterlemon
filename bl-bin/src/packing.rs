@@ -1,4 +1,7 @@
-use std::borrow::Borrow;
+use std::{
+	borrow::Borrow,
+	mem::replace,
+};
 
 use super::{
 	bl,
@@ -122,7 +125,7 @@ mod test_byte_unpacking {
 #[derive(Debug)]
 pub(crate) struct BytePack {
 	stage: u8,
-	mask: Option<bl::Bit>,
+	mask: bl::Bit,
 	direction: BitDirection,
 }
 
@@ -130,22 +133,24 @@ impl BytePack {
 	pub(crate) fn new(direction: BitDirection) -> BytePack {
 		BytePack {
 			stage: 0u8,
-			mask: Some(direction.start_bit()),
+			mask: direction.start_bit(),
 			direction,
 		}
 	}
 
 	pub(crate) fn pack(&mut self, bit: bool) -> Option<u8> {
-		let mask = self.mask?;
-		self.stage |= (bit as u8) << *mask;
-		let (new_mask, wrapped) = (self.direction.advance_function())(mask);
+		self.stage |= (bit as u8) << *self.mask;
+		let (new_mask, wrapped) = (self.direction.advance_function())(self.mask);
+		self.mask = new_mask;
 		if wrapped {
-			self.mask = None;
-			Some(self.stage)
+			Some(replace(&mut self.stage, 0))
 		} else {
-			self.mask = Some(new_mask);
 			None
 		}
+	}
+
+	pub(crate) fn flush(self) -> Option<u8> {
+		Some(self.stage).filter(|_| self.mask != self.direction.start_bit())
 	}
 }
 

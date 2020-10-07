@@ -193,27 +193,29 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 				let next_bit = match decoder.raw_update(&mut stage).map_err(Error::Decode)? {
 					Some(b) => b,
 					None => if had_input_byte {
-						// decoder consumed our input byte, that's fine
+						// decoder quietly consumed our input byte, that's fine
 						continue 'bits
 					} else {
 						// no input, no output, we're done here
 						break 'bits
 					}
 				};
-				match packer.pack(next_bit) {
-					Some(byte) => {
-						// this is a pure output byte
-						obuf.push(byte);
-						if obuf.len() == obuf.capacity() {
-							output_file.write(&*obuf).map_err(io_output_error)?;
-							obuf.clear();
-						}
-					},
-					None => continue 'bits // probably just still packing, that's fine
+
+				if let Some(byte) = packer.pack(next_bit) {
+					// this is a pure output byte
+					obuf.push(byte);
+					if obuf.len() == obuf.capacity() {
+						output_file.write(&*obuf).map_err(io_output_error)?;
+						obuf.clear();
+					}
 				}
 			}
 
 			input_file.consume(buf_len);
+		}
+
+		if let Some(leftover) = packer.flush() {
+			output_file.write(&[leftover]).map_err(io_output_error)?;
 		}
 	}
 
