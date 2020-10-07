@@ -161,7 +161,7 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 		return Err(Error::NotSupported("decoding"));
 	}
 
-	Ok(())
+	output_file.flush().map_err(io_output_error)
 }
 
 #[cfg(test)]
