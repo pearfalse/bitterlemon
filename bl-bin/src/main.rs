@@ -170,10 +170,10 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 	else {
 		// this converts our decoded bits into bytes for i/o
 		let mut packer = BytePack::new(bit_direction);
-		'dec: loop {
+		'blocks: loop {
 			let buf = input_file.fill_buf().map_err(io_input_error)?;
 			if buf.is_empty() {
-				break 'dec;
+				break 'blocks;
 			}
 			let buf_len = buf.len();
 			// turn input buffer into an iterator of bytes
@@ -186,6 +186,11 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 				if stage.is_none() {
 					// input byte was consumed; try refilling it
 					stage = buf.next();
+
+					if stage.is_none() {
+						input_file.consume(buf_len); // TODO: having to remember to do this != great
+						continue 'blocks; // end of this buffer
+					}
 				}
 
 				let had_input_byte = stage.is_some();

@@ -12,4 +12,6 @@ keywords = ["rle", "bitstream", "pack"]
 [dependencies]
 bitterlemon = { version = "= 0.3.0-wip", path = "../" }
 gumdrop = "0.8"
+
+[dev-dependencies]
 arrayvec = ">= 0.5"
