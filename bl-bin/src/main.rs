@@ -2,8 +2,10 @@ use bitterlemon as bl;
 use gumdrop;
 use gumdrop::Options;
 
+mod packing;
+use packing::*;
+
 use std::{
-	borrow::Borrow,
 	fmt,
 	fs::OpenOptions,
 	io,
@@ -136,10 +138,10 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 	else { BitDirection::LsbFirst };
 
 	if ! args.decode {
-		'chunks: loop {
+		'enc: loop {
 			let buf = input_file.fill_buf().map_err(io_input_error)?;
 			if buf.is_empty() {
-				break 'chunks;
+				break 'enc;
 			}
 			let buf_len = buf.len();
 			let mut bits = SliceUnpack::new(buf, bit_direction);
@@ -183,12 +185,17 @@ mod test_main {
 			result, Err(Error::NotSupported(_))
 		));
 	}
+
+	#[test]
+	fn encode() {
+
+	}
 }
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum BitDirection {
+pub(crate) enum BitDirection {
 	LsbFirst,
 	MsbFirst,
 }
@@ -209,121 +216,6 @@ impl BitDirection {
 	}
 }
 
-#[derive(Debug)]
-struct ByteUnpack {
-	stage: u8,
-	bit: Option<bl::Bit>,
-	direction: BitDirection,
-}
-
-impl ByteUnpack {
-	fn new(byte: u8, direction: BitDirection) -> ByteUnpack {
-		ByteUnpack {
-			stage: byte,
-			bit: Some(direction.start_bit()),
-			direction,
-		}
-	}
-}
-
-impl Iterator for ByteUnpack {
-	type Item = bool;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.bit.map(|bit| {
-			let mask = 1 << *bit;
-			let r = (self.stage & mask) != 0;
-			let (new_bit, wrapped) = (self.direction.advance_function())(bit);
-			self.bit = match wrapped {
-				false => Some(new_bit),
-				true => None,
-			};
-			r
-		})
-	}
-}
-
-#[derive(Debug)]
-struct SliceUnpack<S> {
-	source: S,
-	stage: Option<ByteUnpack>,
-	direction: BitDirection,
-}
-
-impl<T: Borrow<u8>, S: IntoIterator<Item = T>> SliceUnpack<S> {
-	fn new(source: S, direction: BitDirection) -> SliceUnpack<S::IntoIter> {
-		let mut source = source.into_iter();
-		let first_byte = source.next().map(|t| new_stage(t, direction));
-		SliceUnpack {
-			source,
-			stage: first_byte,
-			direction,
-		}
-	}
-}
-
-fn new_stage<T: Borrow<u8>>(t: T, direction: BitDirection) -> ByteUnpack {
-	ByteUnpack::new(*t.borrow(), direction)
-}
-
-impl<T: Borrow<u8>, S: Iterator<Item = T>> Iterator for SliceUnpack<S> {
-	type Item = bool;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			if let next @ Some(_) = self.stage.as_mut()?.next() {
-				return next;
-			}
-			self.stage = self.source.next().map(|n| new_stage(n, self.direction));
-		}
-	}
-}
-
-#[cfg(test)]
-mod test_byte_unpacking {
-	use super::*;
-
-	const SIXTEEN_BITS: [bool; 16] = [
-		true, false, false, true,
-		false, false, true, false,
-		false, true, false, false,
-		true, false, true, false,
-	];
-
-	type Collect1 = arrayvec::ArrayVec<[bool; 8]>;
-	type Collect2 = arrayvec::ArrayVec<[bool; 16]>;
-
-	#[test]
-	fn one_byte() {
-		for (source1, source2, direction) in [
-			(0x49, 0x52, BitDirection::LsbFirst),
-			(0x92, 0x4a, BitDirection::MsbFirst),
-		].iter().copied() {
-			println!("first half, {:?}", direction);
-			let generated = ByteUnpack::new(source1, direction)
-			.collect::<Collect1>();
-			assert_eq!(&SIXTEEN_BITS[..8], &*generated);
-
-			println!("second half, {:?}", direction);
-			let generated = ByteUnpack::new(source2, direction)
-			.collect::<Collect1>();
-			assert_eq!(&SIXTEEN_BITS[8..], &*generated);
-		}
-	}
-
-	#[test]
-	fn two_bytes() {
-		for (source, direction) in [
-			([0x49, 0x52], BitDirection::LsbFirst),
-			([0x92, 0x4a], BitDirection::MsbFirst),
-		].iter().copied() {
-			println!("direction: {:?}", direction);
-			let generated = SliceUnpack::new(&source[..], direction)
-			.collect::<Collect2>();
-			assert_eq!(&SIXTEEN_BITS[..], &*generated);
-		}
-	}
-}
 
 #[cfg(test)]
 struct DummyIoWrite;
