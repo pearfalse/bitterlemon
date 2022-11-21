@@ -1,6 +1,6 @@
 //! Encodes a boolean stream, then decodes it, checking that the output matches the input
 
-use arrayvec;
+use arrayvec::ArrayVec;
 use random::Source;
 
 use crate::{
@@ -44,7 +44,7 @@ fn random_kilobyte() {
 	const RUN_COUNT : usize = 5000;
 
 	for _ in 0..RUN_COUNT {
-		let mut source = arrayvec::ArrayVec::<[_; DATA_SIZE]>::new();
+		let mut source = ArrayVec::<_, DATA_SIZE>::new();
 
 		for _ in 0..(DATA_SIZE / 64) {
 			let rand = rand_source.read_u64();

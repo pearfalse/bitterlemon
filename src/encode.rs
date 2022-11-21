@@ -1,7 +1,6 @@
 //! Handles encoding of a Bitterlemon data stream.
 
-extern crate arrayvec;
-
+use arrayvec::ArrayVec;
 use std::fmt;
 
 /// Encodes a given bit stream into a compact byte representation.
@@ -276,7 +275,7 @@ mod test_run_builder {
 }
 
 
-type RunHolding = arrayvec::ArrayVec<[Run; 128]>;
+type RunHolding = ArrayVec<Run, 128>;
 
 trait RunHoldingExtensions {
 	fn bytes_as_frame(&self) -> (u8, u8);
