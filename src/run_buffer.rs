@@ -38,7 +38,7 @@ impl RunBuffer {
 		let store = unsafe {
 			// SAFETY: this is a type hack that projects the uninit state to the array elements
 			// (see also: unstable stdlib feature `maybe_uninit_uninit_array`)
-			MaybeUninit::<[MaybeUninit<Run>; Self::capacity() as usize]>::uninit().assume_init()
+			MaybeUninit::<[MaybeUninit<Run>; Self::cap_u()]>::uninit().assume_init()
 		};
 
 		RunBuffer {
@@ -56,6 +56,8 @@ impl RunBuffer {
 	// - + 1 extra run in flight for that call
 	pub const fn capacity() -> u8 { 18 }
 
+	const fn cap_u() -> usize { Self::capacity() as usize }
+
 	#[inline]
 	fn inc_ptr(ptr: u8) -> u8 {
 		match ptr.wrapping_add(1) {
@@ -66,52 +68,48 @@ impl RunBuffer {
 
 	#[inline]
 	fn dec_ptr(ptr: u8) -> u8 {
-		match ptr.wrapping_sub(1) {
-			n if n == u8::max_value() => Self::capacity() - 1,
-			n => n,
+		match ptr {
+			n if n == 0 => Self::capacity() - 1,
+			n => n.wrapping_sub(1),
 		}
 	}
 
-	pub fn len(&self) -> u8 { self.len }
-
 	pub fn head(&self) -> Option<&Run> {
-		if self.len > 0 {
-			Some(unsafe { self.get_unchecked(self.head) })
-		} else { None }
-	}
-
-	pub fn head_mut(&mut self) -> Option<&mut Run> {
-		if self.len > 0 {
-			Some(unsafe { self.get_unchecked_mut(self.head) })
-		} else { None }
+		(self.len > 0).then(move || unsafe {
+			// SAFETY: self.head always points to the first element, and we are not empty
+			self.get_unchecked(self.head)
+		})
 	}
 
 	pub fn tail(&self) -> Option<&Run> {
-		if self.len > 0 {
-			Some(unsafe { self.get_unchecked(Self::dec_ptr(self.tail)) })
-		} else { None }
+		(self.len > 0).then(move || unsafe {
+			// SAFETY: we have at least 1 element, and tail is always correctly initialised
+			self.get_unchecked(Self::dec_ptr(self.tail))
+		})
 	}
 
-	pub fn tail_mut(&mut self) -> Option<&mut Run> {
-		if self.len > 0 {
-			Some(unsafe { self.get_unchecked_mut(Self::dec_ptr(self.tail)) })
-		} else { None }
+	#[inline]
+	unsafe fn get_unchecked(&self, idx: u8) -> &Run {
+		unsafe {
+			// SAFETY: caller must ensure that idx is in range, and element is initialised
+			&*self.store.get_unchecked(idx as usize).as_ptr()
+		}
 	}
 
-	unsafe fn get_unchecked(&self, idx: u8) -> &Run{
-		&*self.store[idx as usize].as_ptr()
-	}
-
+	#[inline]
 	unsafe fn get_unchecked_mut(&mut self, idx: u8) -> &mut Run {
-		&mut *self.store[idx as usize].as_mut_ptr()
+		unsafe {
+			// SAFETY: caller must ensure that idx is in range, and element is initialised
+			&mut *self.store.get_unchecked_mut(idx as usize).as_mut_ptr()
+		}
 	}
 
 	pub fn push_back(&mut self, run: Run) -> Result<(), Run> {
 		if self.len == Self::capacity() { return Err(run); }
+		debug_assert!(self.len < Self::capacity());
 
 		unsafe {
-			// checked in debug builds
-			debug_assert!(self.tail < Self::capacity());
+			// SAFETY: self.tail is in range, and the element will not be read from
 			let target = self.store.get_unchecked_mut(self.tail as usize).as_mut_ptr();
 			ptr::write(target, run);
 		}
@@ -124,6 +122,7 @@ impl RunBuffer {
 
 	pub fn push_front(&mut self, run: Run) -> Result<(), Run> {
 		if self.len == Self::capacity() { return Err(run); }
+		debug_assert!(self.len < Self::capacity());
 
 		let new_head = Self::dec_ptr(self.head);
 		unsafe {
