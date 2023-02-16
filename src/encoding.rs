@@ -190,14 +190,14 @@ pub struct IterableEncoder<S> {
 	source: S,
 }
 
-pub fn encode<S: Iterator<Item = bool>>(source: S) -> IterableEncoder<S> {
+pub fn encode<S: FusedIterator<Item = bool>>(source: S) -> IterableEncoder<S> {
 	IterableEncoder {
 		inner: EncoderSwitch::Encoder(Encoder::new()),
 		source,
 	}
 }
 
-impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
+impl<S: FusedIterator<Item = bool>> Iterator for IterableEncoder<S> {
 	type Item = u8;
 
 	fn next(&mut self) -> Option<Self::Item> {
