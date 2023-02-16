@@ -34,8 +34,9 @@ impl fmt::Debug for RunBuffer {
 impl RunBuffer {
 	pub fn new() -> RunBuffer {
 		let store = unsafe {
-			let transposed = MaybeUninit::<[Run; Self::capacity() as usize]>::uninit();
-			std::mem::transmute(transposed)
+			// SAFETY: this is a type hack that projects the uninit state to the array elements
+			// (see also: unstable stdlib feature `maybe_uninit_uninit_array`)
+			MaybeUninit::<[MaybeUninit<Run>; Self::capacity() as usize]>::uninit().assume_init()
 		};
 
 		RunBuffer {
@@ -53,7 +54,7 @@ impl RunBuffer {
 	// - + 1 extra run in flight for that call
 	pub const fn capacity() -> u8 { 18 }
 
-	#[inline(always)]
+	#[inline]
 	fn inc_ptr(ptr: u8) -> u8 {
 		match ptr.wrapping_add(1) {
 			n if n == Self::capacity() => 0,
@@ -61,7 +62,7 @@ impl RunBuffer {
 		}
 	}
 
-	#[inline(always)]
+	#[inline]
 	fn dec_ptr(ptr: u8) -> u8 {
 		match ptr.wrapping_sub(1) {
 			n if n == u8::max_value() => Self::capacity() - 1,

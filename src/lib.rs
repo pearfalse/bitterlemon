@@ -227,7 +227,7 @@ mod test_bit {
 	use super::*;
 
 	#[test]
-	fn inc() {
+	fn inc_dec() {
 		use Bit::*;
 		let values = [Bit0, Bit1, Bit2, Bit3, Bit4, Bit5, Bit6, Bit7];
 

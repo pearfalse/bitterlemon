@@ -9,7 +9,7 @@ use crate::{
 	MAX_FRAME_SIZE,
 };
 
-use std::{
+use core::{
 	mem::replace,
 };
 
