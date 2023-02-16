@@ -62,8 +62,6 @@ pub use encoding::{
 	Encoder,
 };
 
-use std::mem::transmute;
-
 pub(crate) const MAX_RUN_SIZE: u8 = 64;
 pub(crate) const MAX_FRAME_SIZE: u8 = 128;
 
@@ -182,6 +180,12 @@ pub(crate) enum Bit {
 	Bit7 = 7,
 }
 
+impl From<Bit> for u8 {
+	fn from(value: Bit) -> Self {
+		*value.as_u8()
+	}
+}
+
 impl Bit {
 	pub fn inc(self) -> (Self, bool) {
 		use Bit::*;
@@ -190,7 +194,7 @@ impl Bit {
 		} else {
 			(unsafe {
 				// SAFETY: OOB case was checked above; all remaining values have a match here
-				transmute((self as u8).wrapping_add(1))
+				Self::from_u8_unchecked((self as u8).wrapping_add(1))
 			}, false)
 		}
 	}
@@ -202,8 +206,23 @@ impl Bit {
 		} else {
 			(unsafe {
 				// SAFETY: OOB case was checked above; all remaining values have a match here
-				transmute((self as u8).wrapping_sub(1))
+				Self::from_u8_unchecked((self as u8).wrapping_sub(1))
 			}, false)
+		}
+	}
+
+	unsafe fn from_u8_unchecked(src: u8) -> Self {
+		debug_assert!(src < 8);
+		unsafe {
+			// SAFETY: caller must ensure that `src` is in 0..8
+			*((&src as *const u8).cast::<Self>())
+		}
+	}
+
+	fn as_u8(&self) -> &u8 {
+		unsafe {
+			// SAFETY: this enum has repr(u8), and all values are defined
+			&*(self as *const Self).cast::<u8>()
 		}
 	}
 }
@@ -211,8 +230,7 @@ impl Bit {
 impl std::ops::Deref for Bit {
 	type Target = u8;
 	fn deref(&self) -> &Self::Target {
-		// u8 is a strict superset of Self, and we don't impl DerefMut
-		unsafe { transmute(self) }
+		self.as_u8()
 	}
 }
 
