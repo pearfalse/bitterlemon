@@ -15,8 +15,9 @@ use std::fmt;
 ///
 /// Runs can queue up when frequently-changing bits are inserted into the encoder state,
 /// which is too busy outputting a frame to ingest them.
+#[derive(Clone)]
 pub(crate) struct RunBuffer {
-	store: [MaybeUninit<Run>; Self::capacity() as usize],
+	store: [MaybeUninit<Run>; Self::cap_u()],
 	head: u8,
 	tail: u8,
 	len: u8,

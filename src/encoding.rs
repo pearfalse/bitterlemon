@@ -219,20 +219,8 @@ impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
 
 		// no more inputs; we may have more outputs for a flushed encoder
 		// but if here, we have to perform the switch
-		let flush = unsafe {
-			use core::{ptr,hint};
-			let moved_encoder = ptr::read(encoder as *mut Encoder);
-			ptr::write(&mut self.inner as *mut _,
-				EncoderSwitch::Flush(moved_encoder.flush())
-			);
-			// now re-borrow from enum
-			match self.inner {
-				EncoderSwitch::Flush(ref mut f) => f,
-				EncoderSwitch::Encoder(_) => hint::unreachable_unchecked(),
-			}
-		};
-
-		flush.next()
+		let flush = encoder.clone().flush();
+		self.inner.insert_flush(flush).next()
 	}
 }
 
@@ -240,6 +228,19 @@ impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
 enum EncoderSwitch {
 	Encoder(Encoder),
 	Flush(Flush),
+}
+
+impl EncoderSwitch {
+	fn insert_flush(&mut self, flush: Flush) -> &mut Flush {
+		*self = Self::Flush(flush);
+		match self {
+			Self::Flush(inner) => inner,
+			_ => unsafe {
+				// SAFETY: we just assigned to Flush unconditionally
+				::core::hint::unreachable_unchecked()
+			},
+		}
+	}
 }
 
 #[cfg(test)]
@@ -268,7 +269,7 @@ mod test_iterable {
 
 // @@@ internals
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct RunBuilder {
 	current: Option<Run>,
 }
@@ -341,7 +342,7 @@ mod test_run_builder {
 
 const STAGE_SIZE: usize = (MAX_FRAME_SIZE / 8) as usize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum StageFlow {
 	Fill {
 		stage_idx: u8,
@@ -383,7 +384,7 @@ impl Default for StageFlow {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct FrameBuilder {
 	// assemble frame here
 	frame_stage: [u8; STAGE_SIZE],
