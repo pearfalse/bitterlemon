@@ -177,7 +177,7 @@ mod test_run {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
-pub enum Bit {
+pub(crate) enum Bit {
 	Bit0 = 0,
 	Bit1 = 1,
 	Bit2 = 2,
@@ -195,7 +195,7 @@ impl Bit {
 			(Bit0, true)
 		} else {
 			(unsafe {
-				// OOB case was checked above
+				// SAFETY: OOB case was checked above; all remaining values have a match here
 				transmute((self as u8).wrapping_add(1))
 			}, false)
 		}
@@ -207,7 +207,7 @@ impl Bit {
 			(Bit7, true)
 		} else {
 			(unsafe {
-				// OOB case was checked above
+				// SAFETY: OOB case was checked above; all remaining values have a match here
 				transmute((self as u8).wrapping_sub(1))
 			}, false)
 		}
@@ -219,5 +219,28 @@ impl std::ops::Deref for Bit {
 	fn deref(&self) -> &Self::Target {
 		// u8 is a strict superset of Self, and we don't impl DerefMut
 		unsafe { transmute(self) }
+	}
+}
+
+#[cfg(test)]
+mod test_bit {
+	use super::*;
+
+	#[test]
+	fn inc() {
+		use Bit::*;
+		let values = [Bit0, Bit1, Bit2, Bit3, Bit4, Bit5, Bit6, Bit7];
+
+		for idx in 0..=7 {
+			let (expected, (new_val, did_wrap)) = (values[(idx + 1) & 7], values[idx].inc());
+			assert_eq!(expected, new_val);
+			assert!(did_wrap == (idx == 7));
+		}
+
+		for idx in 7..=0 {
+			let (expected, (new_val, did_wrap)) = (values[idx], values[(idx + 1) & 7].dec());
+			assert_eq!(expected, new_val);
+			assert!(did_wrap == (idx == 0));
+		}
 	}
 }
