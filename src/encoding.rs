@@ -21,8 +21,8 @@ pub struct Encoder {
 }
 
 impl Encoder {
-	pub fn new() -> Encoder {
-		Encoder::default()
+	pub fn new() -> Self {
+		<Self as Default>::default()
 	}
 
 	/// Updates the encoder state.
@@ -274,10 +274,6 @@ struct RunBuilder {
 }
 
 impl RunBuilder {
-	fn new() -> RunBuilder {
-		RunBuilder::default()
-	}
-
 	fn update(&mut self, bit: bool) -> Option<Run> {
 		match self.current.as_mut() {
 			Some(tail) if tail.len() < MAX_RUN_SIZE && tail.bit() == bit => {
@@ -303,7 +299,7 @@ mod test_run_builder {
 
 	#[test]
 	fn one_run() {
-		let mut encoder = RunBuilder::new();
+		let mut encoder = RunBuilder::default();
 		const LEN: u8 = 64;
 		(0..LEN).for_each(|_| assert_eq!(None, encoder.update(true)));
 
@@ -312,7 +308,7 @@ mod test_run_builder {
 
 	#[test]
 	fn two_runs() {
-		let mut encoder = RunBuilder::new();
+		let mut encoder = RunBuilder::default();
 		const LEN: u8 = 96;
 		(0..MAX_RUN_SIZE).for_each(|_| assert_eq!(None, encoder.update(true)));
 
@@ -325,7 +321,7 @@ mod test_run_builder {
 
 	#[test]
 	fn alternate() {
-		let mut encoder = RunBuilder::new();
+		let mut encoder = RunBuilder::default();
 
 		assert_eq!(None, encoder.update(true));
 
@@ -395,10 +391,6 @@ struct FrameBuilder {
 }
 
 impl FrameBuilder {
-	pub fn new() -> FrameBuilder {
-		FrameBuilder::default()
-	}
-
 	pub fn update(&mut self, run: &mut Option<Run>) -> Option<u8> {
 		// The given run will not be `take`n if it's deemed too big for an active frame,
 		// which needs to be flushed first
@@ -535,7 +527,7 @@ mod test_with_frames {
 	fn case(input: &[Run], expected: &[u8]) {
 		println!("\nNew case: {:?} -> {:02x}", input, expected.as_hex());
 		let mut output = Vec::with_capacity(expected.len());
-		let mut encoder = FrameBuilder::new();
+		let mut encoder = FrameBuilder::default();
 		let mut src_iter = input.iter().copied();
 		while let mut next @ Some(_) = src_iter.next() {
 			while next.is_some() {
