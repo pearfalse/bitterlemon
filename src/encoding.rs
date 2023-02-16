@@ -157,7 +157,7 @@ mod test_encoder {
 	fn run_holding_limit() {
 		// Push run holding size to its theoretical limit
 		fn make_iter(start: bool) -> impl Iterator<Item = bool> {
-			std::iter::successors(Some(start), |last| Some(!*last))
+			::core::iter::successors(Some(start), |last| Some(!*last))
 			.take((MAX_FRAME_SIZE as usize)*2)
 		}
 
@@ -220,7 +220,7 @@ impl<S: Iterator<Item = bool>> Iterator for IterableEncoder<S> {
 		// no more inputs; we may have more outputs for a flushed encoder
 		// but if here, we have to perform the switch
 		let flush = unsafe {
-			use std::{ptr,hint};
+			use core::{ptr,hint};
 			let moved_encoder = ptr::read(encoder as *mut Encoder);
 			ptr::write(&mut self.inner as *mut _,
 				EncoderSwitch::Flush(moved_encoder.flush())

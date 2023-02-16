@@ -1,4 +1,4 @@
-use std::{
+use core::{
 	borrow::Borrow,
 	mem::replace,
 };

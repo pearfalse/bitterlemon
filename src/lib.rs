@@ -52,6 +52,8 @@
 //! assert_eq!(2, error.bytes_expected);
 //! ```
 
+// TODO: almost possible, just need to dummy out formatters via a feature flag
+// #![cfg_attr(all(feature = "no_std", not(test)), no_std)]
 
 mod encoding;
 mod decoding;

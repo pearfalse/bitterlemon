@@ -9,6 +9,9 @@ repository = "https://github.com/pearfalse/bitterlemon"
 categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
 
+[features]
+# no_std = []
+
 [dev-dependencies]
 arrayvec = ">= 0.5"
 criterion = "0.3"

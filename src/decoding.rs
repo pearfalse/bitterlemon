@@ -7,7 +7,7 @@ use crate::{
 	MAX_RUN_SIZE,
 };
 
-use std::iter::FusedIterator;
+use core::iter::FusedIterator;
 
 #[derive(Debug)]
 enum Contents {
@@ -59,7 +59,7 @@ impl Decoder {
 						Some(ref mut guaranteed) => guaranteed,
 						_ => unsafe {
 							// checked immediately after assignment to known value
-							::std::hint::unreachable_unchecked()
+							::core::hint::unreachable_unchecked()
 						}
 					}
 				},
@@ -84,7 +84,7 @@ impl Decoder {
 						match maybe_stage {
 							Some(yes) => yes,
 							None => unsafe {
-								std::hint::unreachable_unchecked()
+								::core::hint::unreachable_unchecked()
 							}
 						}
 					}

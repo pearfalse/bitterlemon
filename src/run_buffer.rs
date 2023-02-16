@@ -1,7 +1,6 @@
 //! Basic ring buffer to hold runs for a potential frame.
 
-use std::{
-	fmt,
+use core::{
 	mem::MaybeUninit,
 	ptr,
 };
@@ -9,6 +8,8 @@ use std::{
 use crate::{
 	Run,
 };
+
+use std::fmt;
 
 /// Holds runs with a rudimentary deque-style interface.
 ///
