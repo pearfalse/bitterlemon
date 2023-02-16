@@ -276,12 +276,17 @@ struct RunBuilder {
 impl RunBuilder {
 	fn update(&mut self, bit: bool) -> Option<Run> {
 		match self.current.as_mut() {
-			Some(tail) if tail.len() < MAX_RUN_SIZE && tail.bit() == bit => {
-				tail.increment();
-				None
+			Some(tail) if tail.bit() == bit => {
+				// extend in place, or swap with fresh run
+				if let Some(extended) = tail.try_inc() {
+					*tail = extended;
+					None
+				} else {
+					Some(replace(tail, Run::new(bit)))
+				}
 			},
 			_ => {
-				// fresh run
+				// bit flipped, always a fresh run
 				replace(&mut self.current, Some(Run::new(bit)))
 			},
 		}

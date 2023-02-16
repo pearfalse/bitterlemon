@@ -117,12 +117,6 @@ impl Run {
 		len
 	}
 
-	#[deprecated(note = "use contained version `try_inc` instead")]
-	pub fn increment(&mut self) {
-		let len = self.len_mut();
-		*len = len.wrapping_add(1);
-	}
-
 	pub fn try_inc(self) -> Option<Run> {
 		self.try_step_impl(MAX_RUN_SIZE, u8::wrapping_add)
 	}
