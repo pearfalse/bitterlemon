@@ -152,7 +152,7 @@ impl<S: Iterator<Item = u8>> Iterator for IterableDecoder<S> {
 				Ok(Some(bit)) => break Some(Ok(bit)),
 				Err(e) => break Some(Err(e)),
 				Ok(None) if has_input => {
-					// frame header
+					// if we get no bit out, it must have been a frame header
 					debug_assert!(_proof.unwrap() < 0x80);
 
 					continue;

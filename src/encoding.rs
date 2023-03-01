@@ -10,10 +10,11 @@ use crate::{
 };
 
 use core::{
+	iter::FusedIterator,
 	mem::replace,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Encoder {
 	run_builder: RunBuilder,
 	frame_builder: FrameBuilder,
@@ -25,12 +26,10 @@ impl Encoder {
 		<Self as Default>::default()
 	}
 
-	/// Updates the encoder state.
+	/// Updates the encoder state, returning a new byte for the output (if there is one).
 	///
-	/// It can take multiple bits to yield an encoded byte, so this method may return
-	/// `None` for the first few invocations. The encode should be considered complete
-	/// when this method returns `None` after being passed `None` as the `bit` argument.
-	/// At this point, you can simply drop the Encoder.
+	/// It can take multiple bits to yield an encoded byte, so this method will return
+	/// `None` for the first few invocations.
 	pub fn update(&mut self, bit: bool) -> Option<u8> {
 		if let Some(next_run) = self.run_builder.update(bit) {
 			self.run_holding.push_back(next_run)
@@ -181,8 +180,6 @@ mod test_encoder {
 	}
 }
 
-
-// @@@ IterableEncoder
 
 #[derive(Debug)]
 pub struct IterableEncoder<S> {
