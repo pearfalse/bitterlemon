@@ -422,10 +422,11 @@ impl FrameBuilder {
 		// which needs to be flushed first
 
 		let mut add_run_to_frame = None;
-		if let Some(len) = run.map(|r| r.len()) {
+		if let Some(run_copy) = run.clone() {
+			let len = run_copy.len();
 			// we were given a run, and we have its length
 			if let StageFlow::Fill { stage_idx, stage_bit } = self.stage_flow {
-				let frame_add_too_expensive = 'cost: {
+				let should_add_run_to_frame = 'cost: {
 					// there's a run we can pull, and a frame we're assembling
 					// to add or not to add? the options are:
 					// - close the frame and pass through as a run (cost: padding + 8)
@@ -434,7 +435,7 @@ impl FrameBuilder {
 					// frames are consistently opened after balanced runs close them
 
 					// would the frame get too large?
-					let try_frame_size = stage_idx * 8 + *stage_bit + len;
+					let try_frame_size = stage_idx * 8 + Self::logical(stage_bit) + len;
 					if try_frame_size > MAX_FRAME_SIZE {
 						break 'cost false;
 					}
@@ -446,7 +447,7 @@ impl FrameBuilder {
 					Self::frame_padding(stage_bit) + 8 >= len
 				};
 
-				if frame_add_too_expensive {
+				if should_add_run_to_frame {
 					add_run_to_frame = run.take(); // will be Some()
 				}
 			}
@@ -494,6 +495,13 @@ impl FrameBuilder {
 		// of the final frame
 		// for next Bit value 7 6 5 4 3 2 1 0 => 0 7 6 5 4 3 2 1
 		*next_bit_to_write.inc().0
+	}
+
+	#[inline]
+	fn logical(next_bit_to_write: Bit) -> u8 {
+		// logical index of next bit to write
+		// for next Bit value 7 6 5 4 3 2 1 0 => 0 1 2 3 4 5 6 7
+		*next_bit_to_write ^ 7
 	}
 
 	fn try_reduce_run(&mut self) -> Option<u8> {
@@ -711,18 +719,20 @@ mod test_with_frames {
 		let mut outputs = Vec::with_capacity((MAX_FRAME_SIZE as usize) / 8 + 2);
 
 		// create a set1-clear1 pattern that fills up a frame 100%...
-		for _ in 0..(MAX_FRAME_SIZE / 2) {
+		for _ in 1..(MAX_FRAME_SIZE / 2) {
 			inputs.push(Run::Set(1));
 			inputs.push(Run::Clear(1));
 		}
-		// ...then add one more
+		// ...then add this
 		inputs.push(Run::Set(1));
+		inputs.push(Run::Clear(2));
 
-		outputs.push(0u8); // frame size
+		outputs.push(0x7fu8); // frame size
 		for _ in 0..(MAX_FRAME_SIZE / 8) {
 			outputs.push(0xaa);
 		}
-		outputs.push(0xc1);
+		// the final Clear(2) should be hoofed out
+		outputs.push(0x82);
 
 		case(inputs.as_slice(), outputs.as_slice());
 	}
