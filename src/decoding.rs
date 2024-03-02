@@ -19,15 +19,14 @@ enum Contents {
 	Run(Run),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Decoder {
-	stage: [u8; (MAX_FRAME_SIZE / 8) as usize],
 	contents: Option<Contents>,
 }
 
 impl Decoder {
 	pub fn new() -> Decoder {
-		Decoder::default()
+		Decoder { contents: None }
 	}
 
 	pub fn raw_update(&mut self, input: &mut Option<u8>)
