@@ -74,20 +74,6 @@ impl RunBuffer {
 		}
 	}
 
-	pub fn head(&self) -> Option<&Run> {
-		(self.len > 0).then(move || unsafe {
-			// SAFETY: self.head always points to the first element, and we are not empty
-			self.get_unchecked(self.head)
-		})
-	}
-
-	pub fn tail(&self) -> Option<&Run> {
-		(self.len > 0).then(move || unsafe {
-			// SAFETY: we have at least 1 element, and tail is always correctly initialised
-			self.get_unchecked(Self::dec_ptr(self.tail))
-		})
-	}
-
 	#[inline]
 	unsafe fn get_unchecked_mut(&mut self, idx: u8) -> *mut Run {
 		unsafe {
