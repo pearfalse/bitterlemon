@@ -64,6 +64,7 @@ mod run_buffer;
 pub use encoding::{
 	encode,
 	Encoder,
+	IterableEncoder,
 };
 
 pub(crate) const MAX_RUN_SIZE: u8 = 64;
@@ -72,6 +73,7 @@ pub(crate) const MAX_FRAME_SIZE: u8 = 128;
 pub use decoding::{
 	decode,
 	Decoder,
+	IterableDecoder,
 	TruncatedInputError,
 };
 
@@ -173,6 +175,7 @@ mod test_run {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
+#[doc(hidden)] // only public for access via the binary crate
 pub enum Bit {
 	Bit0 = 0,
 	Bit1 = 1,
