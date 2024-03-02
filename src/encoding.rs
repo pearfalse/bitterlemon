@@ -585,7 +585,7 @@ mod test_with_frames {
 
 	#[test]
 	fn two_runs() {
-		case(&[Run::Clear(1), Run::Set(1)], &[0x02, 0x02]);
+		case(&[Run::Clear(1), Run::Set(1)], &[0x02, 0x40]);
 	}
 
 	#[test]
@@ -596,14 +596,14 @@ mod test_with_frames {
 			src.push(Run::Set(1));
 			src.push(Run::Clear(1));
 		}
-		case(src.as_slice(), &[0x07, 0x2a]);
+		case(src.as_slice(), &[0x07, 0x54]);
 	}
 
 	#[test]
 	fn two_bytes() {
 		case(
 			&[Run::Set(6), Run::Clear(4), Run::Set(6)],
-			&[0x10, 0x3f, 0xfc]
+			&[0x10, 0xfc, 0x3f]
 		);
 	}
 
@@ -627,15 +627,15 @@ mod test_with_frames {
 	fn abandon_frame_on_long_runs() {
 		case(
 			&[Run::Clear(1), Run::Set(2), Run::Clear(16)],
-			&[0x03, 0x06, 0x90]
+			&[0x03, 0x60, 0x90]
 		);
 		case(
 			&[Run::Clear(20), Run::Set(1), Run::Clear(1), Run::Set(20)],
-			&[0x94, 0x02, 0x01, 0xd4]
+			&[0x94, 0x02, 0x80, 0xd4]
 		);
 		case(
 			&[Run::Set(1), Run::Clear(1), Run::Set(1), Run::Clear(1), Run::Set(64), Run::Set(4)],
-			&[0x04, 0x05, 0xc0, 0xc4]
+			&[0x04, 0xa0, 0xc0, 0xc4]
 		);
 	}
 
@@ -643,11 +643,11 @@ mod test_with_frames {
 	fn conditional_on_padding() {
 		case(
 			&[Run::Set(1), Run::Clear(15)],
-			&[0x10, 0x01, 0x00]
+			&[0x10, 0x80, 0x00]
 		);
 		case(
 			&[Run::Set(7), Run::Clear(1), Run::Set(8)],
-			&[0x10, 0x7f, 0xff]
+			&[0x10, 0xfe, 0xff]
 		);
 	}
 
@@ -677,9 +677,9 @@ mod test_with_frames {
 			Run::Clear(1), Run::Set(1),
 			Run::Clear(1), Run::Set(1),
 		], &[
-			0x0a, 0x55, 0x01,
+			0x0a, 0xaa, 0x80,
 			0xc0,
-			0x0a, 0xaa, 0x02,
+			0x0a, 0x55, 0x40,
 		]);
 	}
 
@@ -699,7 +699,7 @@ mod test_with_frames {
 
 		outputs.push(0u8); // frame size
 		for _ in 0..(MAX_FRAME_SIZE / 8) {
-			outputs.push(0x55);
+			outputs.push(0xaa);
 		}
 		outputs.push(0xc1);
 
