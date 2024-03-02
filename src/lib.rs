@@ -185,8 +185,8 @@ pub enum Bit {
 }
 
 impl Bit {
-	pub(crate) const START: Bit = Bit::Bit0;
-	pub(crate) const END: Bit = Bit::Bit7;
+	pub(crate) const START: Bit = Bit::Bit7;
+	pub(crate) const END: Bit = Bit::Bit0;
 }
 
 impl From<Bit> for u8 {
@@ -220,7 +220,7 @@ impl Bit {
 		}
 	}
 
-	pub fn next(self) -> (Self, bool) { self.inc() }
+	pub fn next(self) -> (Self, bool) { self.dec() }
 
 	unsafe fn from_u8_unchecked(src: u8) -> Self {
 		debug_assert!(src < 8);

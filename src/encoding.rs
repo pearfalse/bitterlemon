@@ -356,7 +356,7 @@ impl StageFlow {
 	fn flush(&mut self) -> u8 {
 		match *self {
 			StageFlow::Fill { stage_idx, stage_bit } => {
-				let raw_stage_size = stage_idx * 8 + *stage_bit;
+				let raw_stage_size = stage_idx * 8 + Self::written_before(stage_bit);
 				*self = StageFlow::Flush {
 					flush_idx: 0,
 					// copy stage_idx, add 1 if some bits have been written to
@@ -366,6 +366,14 @@ impl StageFlow {
 			},
 			_ => {unreachable!("called `flush` for non-Fill stage flow")}
 		}
+	}
+
+	#[inline]
+	fn written_before(bit: Bit) -> u8 {
+		// for a given Bit value, what does that tell you about how far through the frame byte it
+		// was?
+		// for Bit value 7 6 5 4 3 2 1 0: 0 1 2 3 4 5 6 7
+		*bit ^ 7
 	}
 }
 
@@ -398,26 +406,28 @@ impl FrameBuilder {
 		if let Some(len) = run.map(|r| r.len()) {
 			// we were given a run, and we have its length
 			if let StageFlow::Fill { stage_idx, stage_bit } = self.stage_flow {
-				if (|| {
+				let frame_add_too_expensive = 'cost: {
 					// there's a run we can pull, and a frame we're assembling
 					// to add or not to add? the options are:
-					// - pad the frame and output a run (cost: padding + 8)
-					// - add to the frame (cost: run size)
+					// - close the frame and pass through as a run (cost: padding + 8)
+					// - add to the current frame (cost: run size)
 					// when equal, add to frame -- mitigate pathological cases where
 					// frames are consistently opened after balanced runs close them
 
 					// would the frame get too large?
 					let try_frame_size = stage_idx * 8 + *stage_bit + len;
 					if try_frame_size > MAX_FRAME_SIZE {
-						return false;
+						break 'cost false;
 					}
 
-					if len >= 16 { return false; } // too big to benefit
-					if len < 8 { return true; } // always beneficial
+					if len >= 16 { break 'cost false; } // too big to benefit
+					if len < 8 { break 'cost true; } // always beneficial
 
-					let padding = (8 - *stage_bit) & 7;
-					padding + 8 >= len
-				})() {
+					// the +8 is for the frame header, which is relevant in the calc
+					Self::frame_padding(stage_bit) + 8 >= len
+				};
+
+				if frame_add_too_expensive {
 					add_run_to_frame = run.take(); // will be Some()
 				}
 			}
@@ -425,7 +435,7 @@ impl FrameBuilder {
 
 		if add_run_to_frame.is_none()
 		&& !matches!(self.stage_flow, StageFlow::Flush {..}) {
-			// not currently flushing frame, but no frame to add
+			// not currently flushing frame, but no frame to add to
 
 			if self.stage_is_empty() {
 				// stage is empty; pass through a run you might have
@@ -457,6 +467,14 @@ impl FrameBuilder {
 			// pump run out
 			run.take().map(u8::from)
 		}
+	}
+
+	#[inline]
+	fn frame_padding(next_bit_to_write: Bit) -> u8 {
+		// padding := number of extra bits that could be written without increasing the byte count
+		// of the final frame
+		// for next Bit value 7 6 5 4 3 2 1 0 => 0 7 6 5 4 3 2 1
+		*next_bit_to_write.inc().0
 	}
 
 	fn try_reduce_run(&mut self) -> Option<u8> {
@@ -562,7 +580,7 @@ mod test_with_frames {
 			v.push(Run::Clear(1));
 		}
 
-		case(v.as_slice(), &[0x08, 0x55]);
+		case(v.as_slice(), &[0x08, 0xaa]);
 	}
 
 	#[test]
