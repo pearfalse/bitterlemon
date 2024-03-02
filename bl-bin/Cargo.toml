@@ -10,7 +10,7 @@ categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
 
 [dependencies]
-bitterlemon = { version = "= 0.3.0-wip", path = "../" }
+bitterlemon = { path = "../" }
 gumdrop = "0.8"
 
 [dev-dependencies]

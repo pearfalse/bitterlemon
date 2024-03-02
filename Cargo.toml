@@ -9,6 +9,9 @@ repository = "https://github.com/pearfalse/bitterlemon"
 categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
 
+[[bin]]
+name = "bl"
+
 [features]
 # no_std = []
 

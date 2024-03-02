@@ -3,7 +3,7 @@ use core::{
 	mem::replace,
 };
 
-use super::{
+use crate::{
 	bl,
 	BitDirection,
 };
