@@ -52,6 +52,8 @@
 //! assert_eq!(2, error.bytes_expected);
 //! ```
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 // TODO: almost possible, just need to dummy out formatters via a feature flag
 // #![cfg_attr(all(feature = "no_std", not(test)), no_std)]
 
@@ -171,7 +173,7 @@ mod test_run {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute
-pub(crate) enum Bit {
+pub enum Bit {
 	Bit0 = 0,
 	Bit1 = 1,
 	Bit2 = 2,
