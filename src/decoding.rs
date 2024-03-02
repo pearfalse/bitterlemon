@@ -170,8 +170,6 @@ impl<S: Iterator<Item = u8>> Iterator for IterableDecoder<S> {
 	}
 }
 
-impl<S: Iterator<Item = u8>> FusedIterator for IterableDecoder<S> { }
-
 
 /// Decode bitterlemon data into its original bit stream.
 ///
