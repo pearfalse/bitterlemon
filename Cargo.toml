@@ -1,7 +1,7 @@
 [package]
 name = "bitterlemon"
 edition = "2018"
-version = "0.3.0"
+version = "0.2.4"
 authors = ["Simon Harris <simon@pearfalse.com>"]
 description = "An RLE-based encoder and decoder for bit streams."
 license = "MIT"
