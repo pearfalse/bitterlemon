@@ -14,7 +14,7 @@ enum Contents {
 	Frame {
 		stage: Option<u8>,
 		stage_bit: Bit,
-		bits_remaining: u8,
+		bits_remaining: u8, // in the entire frame
 	},
 	Run(Run),
 }
@@ -39,7 +39,7 @@ impl Decoder {
 					// new frame time
 					self.contents = Some(Contents::Frame {
 						stage: None,
-						stage_bit: Bit::Bit0,
+						stage_bit: Bit::START,
 						bits_remaining: match b {
 							0 => MAX_FRAME_SIZE,
 							n => n,
@@ -67,11 +67,11 @@ impl Decoder {
 			}
 		};
 
-		match *contents {
+		match contents {
 			Contents::Frame {
-				stage: ref mut maybe_stage,
-				ref mut stage_bit,
-				ref mut bits_remaining
+				stage: maybe_stage,
+				stage_bit,
+				bits_remaining
 			} => {
 				let stage = match *maybe_stage {
 					Some(ref mut st) => st,
@@ -91,7 +91,7 @@ impl Decoder {
 				};
 				// grab next bit from frame
 				let bit = (*stage & (1 << **stage_bit)) != 0;
-				let (new_bit, wrapped) = stage_bit.inc();
+				let (new_bit, wrapped) = stage_bit.next();
 				*stage_bit = new_bit;
 				*bits_remaining -= 1;
 				if *bits_remaining == 0 {
@@ -101,7 +101,7 @@ impl Decoder {
 				}
 				Ok(Some(bit))
 			},
-			Contents::Run(ref mut run) => {
+			Contents::Run(run) => {
 				let bit = run.bit();
 				if let Some(smaller) = run.try_dec() {
 					*run = smaller;
