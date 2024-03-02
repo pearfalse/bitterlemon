@@ -53,14 +53,7 @@ impl Decoder {
 						n => n,
 					});
 
-					self.contents = Some(Contents::Run(r));
-					match self.contents {
-						Some(ref mut guaranteed) => guaranteed,
-						_ => unsafe {
-							// checked immediately after assignment to known value
-							::core::hint::unreachable_unchecked()
-						}
-					}
+					self.contents.insert(Contents::Run(r))
 				},
 				None => return Ok(None)
 			}
