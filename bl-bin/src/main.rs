@@ -29,7 +29,7 @@ struct BlOptions {
 	#[options(help = "decode bitterlemon input", short = "d")]
 	decode: bool,
 
-	#[options(help = "use MSB-first byte format", long = "msb-first", no_short)]
+	#[options(help = "read input MSB-first", long = "msb-first", no_short)]
 	msb_first: bool,
 }
 
@@ -37,7 +37,6 @@ struct BlOptions {
 enum Error {
 	Io(String, io::Error),
 	Decode(bl::TruncatedInputError), // encoding is infallible
-	NotSupported(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -49,8 +48,6 @@ impl fmt::Display for Error {
 				write!(f, "input stops too early (expected another {} bytes, \
 				lost {} bits of output", ble.bytes_expected, ble.bits_lost)
 			},
-			NotSupported(feature) => write!(f,
-				"sorry, feature '{}' is not supported yet", feature),
 		}
 	}
 }
@@ -231,13 +228,6 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 		}
 	};
 	output_file.flush().map_err(io_output_error)
-}
-
-
-#[cfg(test)]
-mod test_main {
-	use super::*;
-
 }
 
 
