@@ -19,7 +19,7 @@
 //!
 //! let output : Vec<_> = bitterlemon::encode(input).collect();
 //! // Bitterlemon gets this down to 8 bytes
-//! assert_eq!(b"\xf2\xb3\x21\x55\x55\x55\x55\x01", output.as_slice());
+//! assert_eq!(b"\xf2\xb3\x21\xaa\xaa\xaa\xaa\x80", output.as_slice());
 //! ```
 //!
 //! Decoding is similar, except that not all byte inputs produce a valid output:
