@@ -29,7 +29,7 @@ impl Decoder {
 		Decoder { contents: None }
 	}
 
-	pub fn raw_update(&mut self, input: &mut Option<u8>)
+	pub fn update(&mut self, input: &mut Option<u8>)
 	-> Result<Option<bool>, TruncatedInputError> {
 		let contents: &mut Contents = match self.contents {
 			Some(ref mut c) => c,
@@ -140,7 +140,7 @@ impl<S: Iterator<Item = u8>> Iterator for IterableDecoder<S> {
 
 			let has_input = self.cached.is_some();
 			let _proof = self.cached;
-			match self.decoder.raw_update(&mut self.cached) {
+			match self.decoder.update(&mut self.cached) {
 				Ok(Some(bit)) => break Some(Ok(bit)),
 				Err(e) => break Some(Err(e)),
 				Ok(None) if has_input => {

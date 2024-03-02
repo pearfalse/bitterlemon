@@ -13,7 +13,7 @@ use core::{
 	mem::replace,
 };
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Encoder {
 	run_builder: RunBuilder,
 	frame_builder: FrameBuilder,
@@ -22,7 +22,11 @@ pub struct Encoder {
 
 impl Encoder {
 	pub fn new() -> Self {
-		<Self as Default>::default()
+		Encoder {
+			run_builder: RunBuilder::default(),
+			frame_builder: FrameBuilder::default(),
+			run_holding: RunBuffer::new(),
+		}
 	}
 
 	/// Updates the encoder state, returning a new byte for the output (if there is one).
