@@ -5,7 +5,6 @@ use crate::{
 	Run,
 	Bit,
 	run_buffer::RunBuffer,
-	MAX_RUN_SIZE,
 	MAX_FRAME_SIZE,
 };
 
@@ -300,6 +299,8 @@ impl RunBuilder {
 mod test_run_builder {
 	use super::*;
 
+	use crate::MAX_RUN_SIZE;
+
 	#[test]
 	fn one_run() {
 		let mut encoder = RunBuilder::default();
@@ -540,6 +541,8 @@ impl FrameBuilder {
 #[cfg(test)]
 mod test_with_frames {
 	use super::*;
+	use crate::MAX_RUN_SIZE;
+
 	use hex_slice::AsHex;
 
 	fn case(input: &[Run], expected: &[u8]) {

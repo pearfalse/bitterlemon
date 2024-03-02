@@ -25,7 +25,7 @@
 //! Decoding is similar, except that not all byte inputs produce a valid output:
 //!
 //! ```
-//! let encoded = b"\xc8\x08\x49";
+//! let encoded = b"\xc8\x08\x92";
 //! let decoded : Result<Vec<_>, _> = bitterlemon::decode(encoded.iter().copied())
 //!     .collect();
 //!
@@ -185,8 +185,7 @@ pub enum Bit {
 }
 
 impl Bit {
-	pub(crate) const START: Bit = Bit::Bit7;
-	pub(crate) const END: Bit = Bit::Bit0;
+	pub const START: Bit = Bit::Bit7;
 }
 
 impl From<Bit> for u8 {
