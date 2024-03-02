@@ -184,6 +184,11 @@ pub enum Bit {
 	Bit7 = 7,
 }
 
+impl Bit {
+	pub(crate) const START: Bit = Bit::Bit0;
+	pub(crate) const END: Bit = Bit::Bit7;
+}
+
 impl From<Bit> for u8 {
 	fn from(value: Bit) -> Self {
 		*value.as_u8()

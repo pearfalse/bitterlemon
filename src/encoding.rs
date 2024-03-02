@@ -360,7 +360,7 @@ impl StageFlow {
 				*self = StageFlow::Flush {
 					flush_idx: 0,
 					// copy stage_idx, add 1 if some bits have been written to
-					stage_size: stage_idx + u8::from(stage_bit > Bit::Bit0)
+					stage_size: stage_idx + u8::from(stage_bit != Bit::START)
 				};
 				if raw_stage_size == MAX_FRAME_SIZE { 0 } else { raw_stage_size }
 			},
@@ -372,7 +372,7 @@ impl StageFlow {
 impl Default for StageFlow {
 	fn default() -> Self {
 		StageFlow::Fill {
-			stage_idx: 0, stage_bit: Bit::Bit0,
+			stage_idx: 0, stage_bit: Bit::START,
 		}
 	}
 }
@@ -496,6 +496,7 @@ impl FrameBuilder {
 
 			// increment bit
 			let (new_stage_bit, wrap_idx) = stage_bit.inc();
+			// update bit with new position
 			*stage_bit = new_stage_bit;
 			if wrap_idx {
 				*stage_idx += 1;
@@ -512,7 +513,7 @@ impl FrameBuilder {
 	fn stage_is_empty(&self) -> bool {
 		match self.stage_flow {
 			StageFlow::Fill { stage_idx, stage_bit }
-				=> stage_idx == 0 && stage_bit == Bit::Bit0,
+				=> stage_idx == 0 && stage_bit == Bit::START,
 			_ => unreachable!("called `stage_is_empty` for non-Fill stage"),
 		}
 	}
