@@ -172,6 +172,8 @@ mod test_run {
 }
 
 
+/// This type is shared between the library and CLI versions of `bitterlemon`. It is not part of
+/// the API and you should not attempt to use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[allow(dead_code)] // variants are used via `inc` and `dec`, which transmute

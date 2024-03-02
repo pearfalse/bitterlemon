@@ -13,6 +13,11 @@ use core::{
 	mem::replace,
 };
 
+/// A low-level encoder for bit streams.
+///
+/// This struct provides finer-grained control over the encode control flow, for when source data
+/// cannot be easily expressed as an iterator of `bool`s. If it can, consider using [`encode`]
+/// instead.
 #[derive(Debug, Clone)]
 pub struct Encoder {
 	run_builder: RunBuilder,
@@ -21,6 +26,7 @@ pub struct Encoder {
 }
 
 impl Encoder {
+	/// Constructs a new encoder.
 	pub fn new() -> Self {
 		Encoder {
 			run_builder: RunBuilder::default(),
@@ -57,6 +63,8 @@ impl Encoder {
 		r
 	}
 
+	/// Finishes the encode process, converting the encoder into a new type for all
+	/// yet-to-be-emitted bytes.
 	pub fn flush(self) -> Flush {
 		let Encoder {
 			run_builder,
@@ -73,6 +81,7 @@ impl Encoder {
 	}
 }
 
+/// An iterator over trailing encode bytes.
 #[derive(Debug)]
 pub struct Flush {
 	frame_builder: FrameBuilder,
@@ -184,12 +193,17 @@ mod test_encoder {
 }
 
 
+/// A high-level bitterlemon encoder. You can construct this with [`encode`].
+///
+/// This function requires that your source data be an iterator of `bool`s. If that isn't possible,
+/// use [`Encoder`] instead.
 #[derive(Debug)]
 pub struct IterableEncoder<S> {
 	inner: EncoderSwitch,
 	source: S,
 }
 
+/// Encode a bit stream into a bitterlemon byte stream.
 pub fn encode<S: FusedIterator<Item = bool>>(source: S) -> IterableEncoder<S> {
 	IterableEncoder {
 		inner: EncoderSwitch::Encoder(Encoder::new()),

@@ -192,7 +192,7 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 
 				let had_input_byte = stage.is_some();
 
-				let next_bit = match decoder.raw_update(&mut stage).map_err(Error::Decode)? {
+				let next_bit = match decoder.update(&mut stage).map_err(Error::Decode)? {
 					Some(b) => b,
 					None => if had_input_byte {
 						// decoder quietly consumed our input byte, that's fine

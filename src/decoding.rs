@@ -19,16 +19,27 @@ enum Contents {
 	Run(Run),
 }
 
+/// A low-level decoder for bitterlemon data.
+///
+/// This struct provides finer-grained control over the decode control flow, for when source data
+/// cannot be easily expressed as an iterator of `u8`s. If it can, consider using [`decode`]
+/// instead.
 #[derive(Debug)]
 pub struct Decoder {
 	contents: Option<Contents>,
 }
 
 impl Decoder {
-	pub fn new() -> Decoder {
+	pub const fn new() -> Decoder {
 		Decoder { contents: None }
 	}
 
+	/// Updates the decoder state.
+	///
+	/// Each step of bitterlemon decoding may or may not need to pull an additional input byte, and
+	/// it may not have any bits to yield for the input it has been given so far. You should always
+	/// pass another input byte to this function if you have one, as passing `&mut None` may be
+	/// inferred as truncated input.
 	pub fn update(&mut self, input: &mut Option<u8>)
 	-> Result<Option<bool>, TruncatedInputError> {
 		let contents: &mut Contents = match self.contents {
@@ -107,9 +118,12 @@ impl Decoder {
 }
 
 
+/// An error that can occur during decoding, when an expected byte was not present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TruncatedInputError {
+	/// The number of bits known to be lost due to truncation.
 	pub bits_lost: u8,
+	/// The number of additional bytes expected from the decoder.
 	pub bytes_expected: u8,
 }
 
@@ -122,6 +136,7 @@ impl TruncatedInputError {
 	}
 }
 
+/// A high-level bitterlemon decoder. You can construct this with [`decode`].
 #[derive(Debug)]
 pub struct IterableDecoder<S> {
 	source: S,
@@ -158,6 +173,10 @@ impl<S: Iterator<Item = u8>> Iterator for IterableDecoder<S> {
 impl<S: Iterator<Item = u8>> FusedIterator for IterableDecoder<S> { }
 
 
+/// Decode bitterlemon data into its original bit stream.
+///
+/// This function requires that your source data be an iterator of `u8`s. If that isn't possible,
+/// use [`Decoder`] instead.
 pub fn decode<S: IntoIterator<Item = u8>>(source: S)
 -> IterableDecoder<S::IntoIter> {
 	IterableDecoder {
