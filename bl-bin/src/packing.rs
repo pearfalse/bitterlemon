@@ -86,8 +86,8 @@ mod test_byte_unpacking {
 		true, false, true, false,
 	];
 
-	type Collect1 = arrayvec::ArrayVec<[bool; 8]>;
-	type Collect2 = arrayvec::ArrayVec<[bool; 16]>;
+	type Collect1 = arrayvec::ArrayVec<bool, 8>;
+	type Collect2 = arrayvec::ArrayVec<bool, 16>;
 
 	#[test]
 	fn one_byte() {
@@ -199,8 +199,8 @@ mod test_byte_packing {
 		true, false, true, false,
 	];
 
-	type Collect1 = arrayvec::ArrayVec<[u8; 1]>;
-	type Collect2 = arrayvec::ArrayVec<[u8; 2]>;
+	type Collect1 = arrayvec::ArrayVec<u8, 1>;
+	type Collect2 = arrayvec::ArrayVec<u8, 2>;
 
 	#[test]
 	fn one_byte() {
