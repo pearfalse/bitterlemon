@@ -1,3 +1,6 @@
+[workspace]
+members = ["bl-bin"]
+
 [package]
 name = "bitterlemon"
 edition = "2021"
@@ -8,9 +11,6 @@ license = "MIT"
 repository = "https://github.com/pearfalse/bitterlemon"
 categories = ["compression"]
 keywords = ["rle", "bitstream", "pack"]
-
-[[bin]]
-name = "bl"
 
 [features]
 # no_std = []
