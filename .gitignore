@@ -3,3 +3,5 @@ Cargo.lock
 *.sublime-*
 .DS_Store
 scratch/
+Thumbs.db
+desktop.ini
