@@ -89,18 +89,10 @@ impl RunBuffer {
 	}
 
 	#[inline]
-	unsafe fn get_unchecked(&self, idx: u8) -> &Run {
+	unsafe fn get_unchecked_mut(&mut self, idx: u8) -> *mut Run {
 		unsafe {
-			// SAFETY: caller must ensure that idx is in range, and element is initialised
-			&*self.store.get_unchecked(idx as usize).as_ptr()
-		}
-	}
-
-	#[inline]
-	unsafe fn get_unchecked_mut(&mut self, idx: u8) -> &mut Run {
-		unsafe {
-			// SAFETY: caller must ensure that idx is in range, and element is initialised
-			&mut *self.store.get_unchecked_mut(idx as usize).as_mut_ptr()
+			// SAFETY: caller must ensure that idx is in range
+			self.store.get_unchecked_mut(idx as usize).as_mut_ptr()
 		}
 	}
 
@@ -110,12 +102,11 @@ impl RunBuffer {
 
 		unsafe {
 			// SAFETY: self.tail is in range, and the element will not be read from
-			let target = self.store.get_unchecked_mut(self.tail as usize).as_mut_ptr();
-			ptr::write(target, run);
+			ptr::write(self.get_unchecked_mut(self.tail), run);
 		}
 
-		self.len += 1;
 		self.tail = Self::inc_ptr(self.tail);
+		self.len += 1;
 
 		Ok(())
 	}
@@ -128,8 +119,7 @@ impl RunBuffer {
 		unsafe {
 			// checked in debug builds
 			debug_assert!(new_head < Self::capacity());
-			let target = self.store.get_unchecked_mut(new_head as usize).as_mut_ptr();
-			ptr::write(target, run);
+			ptr::write(self.get_unchecked_mut(new_head), run);
 		}
 
 		self.head = new_head;
@@ -144,7 +134,7 @@ impl RunBuffer {
 		let run = unsafe {
 			// checked in debug builds
 			debug_assert!(self.head < Self::capacity());
-			let target = self.store.get_unchecked_mut(self.head as usize).as_ptr();
+			let target = self.get_unchecked_mut(self.head);
 			// ptr::read isn't strictly necessary here, since Run is Copy and !Drop, but it
 			// provides symmetry with `push_back`, and doesn't require the above invariants
 			ptr::read(target)
