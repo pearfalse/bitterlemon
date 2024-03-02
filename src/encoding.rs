@@ -367,10 +367,6 @@ impl StageFlow {
 			_ => {unreachable!("called `flush` for non-Fill stage flow")}
 		}
 	}
-
-	fn reset(&mut self) {
-		*self = StageFlow::default();
-	}
 }
 
 impl Default for StageFlow {
@@ -510,7 +506,7 @@ impl FrameBuilder {
 	}
 
 	fn reset_stage(&mut self) {
-		self.stage_flow.reset();
+    	self.stage_flow = StageFlow::default();
 	}
 
 	fn stage_is_empty(&self) -> bool {
