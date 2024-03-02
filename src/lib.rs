@@ -220,6 +220,8 @@ impl Bit {
 		}
 	}
 
+	pub fn next(self) -> (Self, bool) { self.inc() }
+
 	unsafe fn from_u8_unchecked(src: u8) -> Self {
 		debug_assert!(src < 8);
 		unsafe {

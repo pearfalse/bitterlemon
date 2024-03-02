@@ -495,7 +495,7 @@ impl FrameBuilder {
 			*tgt |= bit << **stage_bit;
 
 			// increment bit
-			let (new_stage_bit, wrap_idx) = stage_bit.inc();
+			let (new_stage_bit, wrap_idx) = stage_bit.next();
 			// update bit with new position
 			*stage_bit = new_stage_bit;
 			if wrap_idx {
