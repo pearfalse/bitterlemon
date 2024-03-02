@@ -228,13 +228,13 @@ mod test_iterable_decoder {
 
 		case(0xff, true);
 		case(0x00, false);
-		case(0x01, true);
-		case(0xfe, false);
+		case(0x80, true);
+		case(0x7f, false);
 	}
 
 	#[test]
 	fn full_byte_frame() {
-		let mut iter = decoder![0x08, 0xaa];
+		let mut iter = decoder![0x08, 0x55];
 
 		let mut expected = false;
 		for _ in 0..8 {
@@ -249,7 +249,7 @@ mod test_iterable_decoder {
 	fn two_byte_frame() {
 		let mut iter = decoder![0x0f, 0xaa, 0xaa];
 
-		let mut expected = false;
+		let mut expected = true;
 		for _ in 0..15 {
 			assert_eq!(iter.next(), Some(Ok(expected)));
 			expected = !expected;
@@ -272,10 +272,10 @@ mod test_iterable_decoder {
 			assert_eq!(iter.next(), None);
 		};
 
-		case(&[0xc1, 0x10, 0xaa, 0xaa, 0x81], 18, true);
-		case(&[0x81, 0x10, 0x55, 0x55, 0xc1], 18, false);
-		case(&[0x08, 0x55, 0xc1, 0x08, 0xaa], 17, true);
-		case(&[0x08, 0xaa, 0x81, 0x08, 0x55], 17, false);
+		case(&[0xc1, 0x10, 0x55, 0x55, 0x81], 18, true);
+		case(&[0x81, 0x10, 0xaa, 0xaa, 0xc1], 18, false);
+		case(&[0x08, 0xaa, 0xc1, 0x08, 0x55], 17, true);
+		case(&[0x08, 0x55, 0x81, 0x08, 0xaa], 17, false);
 	}
 
 	#[test]
@@ -309,7 +309,7 @@ mod test_iterable_decoder {
 		case(&[0x01], 1, 1);
 		case(&[0x02], 2, 1);
 		case(&[0x00], 0x80, 0x10);
-		case(&[0x09, 0xff], 1, 1);
+		case(&[0x0b, 0xff], 3, 1);
 		case(&[0x7f, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14], 7, 1);
 	}
 
