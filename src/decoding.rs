@@ -317,7 +317,7 @@ mod test_iterable_decoder {
 	#[test]
 	fn next_none_idempotence() {
 		let src = &[0xc1u8];
-		let mut iter = super::decode(src.iter().map(|&b| b));
+		let mut iter = super::decode(src.iter().copied());
 
 		assert!(iter.next().is_some());
 
