@@ -193,7 +193,7 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 	}
 	else {
 		// this converts our decoded bits into bytes for i/o
-		let mut packer = BytePack::new(BitDirection::MsbFirst);
+		let mut packer = BytePack::new();
 		'blocks: loop {
 			let buf = input_file.fill_buf().map_err(io_input_error)?;
 			if buf.is_empty() {

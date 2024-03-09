@@ -165,18 +165,15 @@ mod test_byte_packing {
 	];
 
 	type Collect1 = arrayvec::ArrayVec<u8, 1>;
-	type Collect2 = arrayvec::ArrayVec<u8, 2>;
 
 	#[test]
 	fn one_byte() {
-		for (half, source, dst, direction) in [
-			( "first", &SIXTEEN_BITS[..8], 0x49, BitDirection::LsbFirst),
-			("second", &SIXTEEN_BITS[8..], 0x52, BitDirection::LsbFirst),
-			( "first", &SIXTEEN_BITS[..8], 0x92, BitDirection::MsbFirst),
-			("second", &SIXTEEN_BITS[8..], 0x4a, BitDirection::MsbFirst),
+		for (half, source, dst) in [
+			( "first", &SIXTEEN_BITS[..8], 0x92),
+			("second", &SIXTEEN_BITS[8..], 0x4a),
 		].iter().copied() {
-			println!("{} half, {:?}", half, direction);
-			let mut bp = BytePack::new(direction);
+			println!("{} half", half);
+			let mut bp = BytePack::new();
 			let generated = source.iter().copied()
 			.filter_map(|b| bp.pack(b))
 			.collect::<Collect1>();
