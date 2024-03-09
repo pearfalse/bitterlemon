@@ -15,7 +15,7 @@ fn random_kilobyte(c: &mut Criterion) {
 	const DATA_SIZE : usize = 1024;
 
 	c.bench_function("1kb round-trip", |b| {
-		let mut source = arrayvec::ArrayVec::<[_; DATA_SIZE]>::new();
+		let mut source = arrayvec::ArrayVec::<bool, DATA_SIZE>::new();
 
 		for _ in 0..(DATA_SIZE / 64) {
 			let rand = rand_source.read_u64();
