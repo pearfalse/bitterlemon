@@ -29,8 +29,13 @@ struct BlOptions {
 	#[options(help = "decode bitterlemon input", short = "d")]
 	decode: bool,
 
-	#[options(help = "read input MSB-first", long = "msb-first", no_short)]
-	msb_first: bool,
+	#[options(help = "read input LSB-first", long = "lsb-first", no_short, default = "false")]
+	lsb_first: bool,
+}
+
+impl BlOptions {
+	#[inline(always)]
+	const fn wants_encode(&self) -> bool { ! self.decode }
 }
 
 #[derive(Debug)]
@@ -128,13 +133,37 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 		&mut output_file_fs as &mut Output<'a>
 	};
 
-	let mut encoder = bl::Encoder::new();
-	let mut decoder = bl::Decoder::new();
-	let bit_direction = if args.msb_first { BitDirection::MsbFirst }
-	else { BitDirection::LsbFirst };
 	let mut obuf = Vec::with_capacity(BUF_SIZE);
+	macro_rules! obuf {
+		() => {
+			if obuf.len() == obuf.capacity() {
+				obuf!(flush);
+			}
+		};
+		(flush) => {{
+			output_file.write_all(&*obuf).map_err(io_output_error)?;
+			obuf.clear();
+		}};
+		($byte:expr) => {
+			obuf.push($byte);
+			obuf!();
+		};
+		(maybe $obyte:expr) => {
+			if let Some(b) = $obyte {
+				obuf.push(b);
+			}
 
-	if ! args.decode {
+			obuf!();
+		};
+	}
+
+	let mut decoder = bl::Decoder::new();
+
+	let bit_direction = if args.lsb_first { BitDirection::LsbFirst }
+	else { BitDirection::MsbFirst };
+
+	if args.wants_encode() {
+		let mut encoder = bl::Encoder::new();
 		'enc: loop {
 			let buf = input_file.fill_buf().map_err(io_input_error)?;
 			if buf.is_empty() {
@@ -151,22 +180,20 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 					None => continue
 				};
 
-				obuf.push(enc_byte);
-				if obuf.len() == obuf.capacity() {
-					// output buffer full; push it to io object
-					output_file.write(&*obuf).map_err(io_output_error)?;
-					obuf.clear();
-				}
+				obuf!(enc_byte);
 			}
 			input_file.consume(buf_len);
 		}
+		// input is empty, flush encoder
+		for byte in encoder.flush() {
+			obuf!(byte);
+		}
 
-		// input is empty
-		output_file.write(&*obuf).map_err(io_output_error)?;
+		obuf!(flush);
 	}
 	else {
 		// this converts our decoded bits into bytes for i/o
-		let mut packer = BytePack::new(bit_direction);
+		let mut packer = BytePack::new(BitDirection::MsbFirst);
 		'blocks: loop {
 			let buf = input_file.fill_buf().map_err(io_input_error)?;
 			if buf.is_empty() {
@@ -185,48 +212,34 @@ fn main2<'a, In: BufRead + 'a, Out: Write + 'a>(
 					stage = buf.next();
 
 					if stage.is_none() {
-						input_file.consume(buf_len); // TODO: having to remember to do this != great
-						continue 'blocks; // end of this buffer
+						input_file.consume(buf_len);
+						// flush decoder
+						while let Some(next_bit) = decoder.update(&mut stage)
+						.map_err(Error::Decode)? {
+							obuf!(maybe packer.pack(next_bit));
+						}
+
+						continue 'blocks;
 					}
 				}
-
-				let had_input_byte = stage.is_some();
 
 				let next_bit = match decoder.update(&mut stage).map_err(Error::Decode)? {
 					Some(b) => b,
-					None => if had_input_byte {
-						// decoder quietly consumed our input byte, that's fine
+					None => {
+						// decoder quietly consumed our input byte (frame header); run again
 						continue 'bits
-					} else {
-						// no input, no output, we're done here
-						break 'bits
 					}
 				};
 
-				if let Some(byte) = packer.pack(next_bit) {
-					// this is a pure output byte
-					obuf.push(byte);
-					if obuf.len() == obuf.capacity() {
-						output_file.write(&*obuf).map_err(io_output_error)?;
-						obuf.clear();
-					}
-				}
+				obuf!(maybe packer.pack(next_bit));
 			}
-
-			input_file.consume(buf_len);
 		}
 
-		if let Some(leftover) = packer.flush() {
-			output_file.write(&[leftover]).map_err(io_output_error)?;
-		}
+		obuf!(maybe packer.flush());
+		obuf!(flush);
 	}
 
-	match &*obuf {
-		&[] => {},
-		other => {
-			output_file.write(other).map_err(io_output_error)?;
-		}
-	};
+	debug_assert!(obuf.is_empty(), "buffer still contains {} byte(s)", obuf.len());
 	output_file.flush().map_err(io_output_error)
 }
 
