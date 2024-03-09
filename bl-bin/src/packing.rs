@@ -12,7 +12,7 @@ use crate::{
 pub(crate) struct ByteUnpack {
 	stage: u8,
 	bit: Option<bl::Bit>,
-	direction: BitDirection,
+	advance: fn(bl::Bit) -> (bl::Bit, bool),
 }
 
 impl ByteUnpack {
@@ -20,7 +20,7 @@ impl ByteUnpack {
 		ByteUnpack {
 			stage: byte,
 			bit: Some(direction.start_bit()),
-			direction,
+			advance: direction.advance_function(),
 		}
 	}
 }
@@ -32,7 +32,7 @@ impl Iterator for ByteUnpack {
 		let bit = self.bit?;
 		let mask = 1 << *bit;
 		let r = (self.stage & mask) != 0;
-		let (new_bit, wrapped) = (self.direction.advance_function())(bit);
+		let (new_bit, wrapped) = (self.advance)(bit);
 		self.bit = match wrapped {
 			false => Some(new_bit),
 			true => None,
@@ -126,21 +126,19 @@ mod test_byte_unpacking {
 pub(crate) struct BytePack {
 	stage: u8,
 	mask: bl::Bit,
-	direction: BitDirection,
 }
 
 impl BytePack {
-	pub(crate) fn new(direction: BitDirection) -> BytePack {
+	pub(crate) fn new() -> BytePack {
 		BytePack {
 			stage: 0u8,
-			mask: direction.start_bit(),
-			direction,
+			mask: bl::Bit::START,
 		}
 	}
 
 	pub(crate) fn pack(&mut self, bit: bool) -> Option<u8> {
 		self.stage |= (bit as u8) << *self.mask;
-		let (new_mask, wrapped) = (self.direction.advance_function())(self.mask);
+		let (new_mask, wrapped) = self.mask.dec();
 		self.mask = new_mask;
 		if wrapped {
 			Some(replace(&mut self.stage, 0))
@@ -150,43 +148,10 @@ impl BytePack {
 	}
 
 	pub(crate) fn flush(self) -> Option<u8> {
-		Some(self.stage).filter(|_| self.mask != self.direction.start_bit())
+		Some(self.stage).filter(|_| self.mask != bl::Bit::START)
 	}
 }
 
-#[derive(Debug)]
-pub(crate) struct SlicePack<S> {
-	source: S,
-	stage: BytePack,
-	direction: BitDirection,
-}
-
-impl<T: Borrow<bool>, S: IntoIterator<Item = T>> SlicePack<S> {
-	pub(crate) fn new(source: S, direction: BitDirection) -> SlicePack<S::IntoIter> {
-		SlicePack {
-			source: source.into_iter(),
-			stage: BytePack::new(direction),
-			direction,
-		}
-	}
-}
-
-impl<T: Borrow<bool>, S: Iterator<Item = T>> Iterator for SlicePack<S> {
-	type Item = u8;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			let next_bit = *self.source.next()?.borrow();
-			match self.stage.pack(next_bit) {
-				byte @ Some(_) => {
-					self.stage = BytePack::new(self.direction);
-					break byte
-				},
-				None => continue
-			}
-		}
-	}
-}
 
 #[cfg(test)]
 mod test_byte_packing {
@@ -216,19 +181,6 @@ mod test_byte_packing {
 			.filter_map(|b| bp.pack(b))
 			.collect::<Collect1>();
 			assert_eq!(&[dst], &*generated);
-		}
-	}
-
-	#[test]
-	fn two_bytes() {
-		for (dst, direction) in [
-			([0x49, 0x52], BitDirection::LsbFirst),
-			([0x92, 0x4a], BitDirection::MsbFirst),
-		].iter().copied() {
-			println!("direction: {:?}", direction);
-			let generated = SlicePack::new(&SIXTEEN_BITS[..], direction)
-			.collect::<Collect2>();
-			assert_eq!(&dst[..], &*generated);
 		}
 	}
 }
