@@ -7,8 +7,6 @@ use crate::{
 	MAX_RUN_SIZE,
 };
 
-use core::iter::FusedIterator;
-
 #[derive(Debug)]
 enum Contents {
 	Frame {
