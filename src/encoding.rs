@@ -57,8 +57,6 @@ impl Encoder {
 		if let Some(not_consumed) = holding {
 			self.run_holding.push_front(not_consumed) // put it back for next time
 			.expect("Encoder::update/2: RunBuffer overflow");
-			debug_assert!(r.is_some()); // if frame builder didn't consume the bit,
-			// it had better be outputting a frame
 		}
 		r
 	}
@@ -124,6 +122,7 @@ mod test_encoder {
 		s.iter().map(|&c| c == b'1')
 	}
 
+	#[track_caller]
 	fn case(input: impl IntoIterator<Item = bool>, expected: &[u8]) {
 		let mut output_iter = expected.iter().copied();
 		let mut encoder = Encoder::new();
@@ -422,11 +421,11 @@ impl FrameBuilder {
 		// which needs to be flushed first
 
 		let mut add_run_to_frame = None;
-		if let Some(run_copy) = run.clone() {
-			let len = run_copy.len();
+		if let Some(run_guts) = run {
+			let len = run_guts.len();
 			// we were given a run, and we have its length
 			if let StageFlow::Fill { stage_idx, stage_bit } = self.stage_flow {
-				let should_add_run_to_frame = 'cost: {
+				'cost: {
 					// there's a run we can pull, and a frame we're assembling
 					// to add or not to add? the options are:
 					// - close the frame and pass through as a run (cost: padding + 8)
@@ -434,21 +433,37 @@ impl FrameBuilder {
 					// when equal, add to frame -- mitigate pathological cases where
 					// frames are consistently opened after balanced runs close them
 
+					if len >= 16 {
+						// assume too big to benefit
+						break 'cost;
+					}
+
+					let padding = Self::frame_padding(stage_bit);
+					if padding != 0 {
+						// when there's frame padding, the calculation should be more opportunistic
+						if len > padding {
+							*run_guts.len_mut() -= padding;
+							add_run_to_frame = Some(run_guts.with_new_len(padding));
+							break 'cost;
+						}
+
+						// nuke run entirely
+						add_run_to_frame = run.take();
+						break 'cost;
+					}
+
 					// would the frame get too large?
 					let try_frame_size = stage_idx * 8 + Self::logical(stage_bit) + len;
 					if try_frame_size > MAX_FRAME_SIZE {
-						break 'cost false;
+						break 'cost;
 					}
 
-					if len >= 16 { break 'cost false; } // too big to benefit
-					if len < 8 { break 'cost true; } // always beneficial
-
+					// for small runs, always beneficial
+					if len < 8 ||
 					// the +8 is for the frame header, which is relevant in the calc
-					Self::frame_padding(stage_bit) + 8 >= len
-				};
-
-				if should_add_run_to_frame {
-					add_run_to_frame = run.take(); // will be Some()
+					Self::frame_padding(stage_bit) + 8 > len {
+						add_run_to_frame = run.take();
+					}
 				}
 			}
 		}
@@ -569,6 +584,8 @@ mod test_with_frames {
 	use super::*;
 	use crate::MAX_RUN_SIZE;
 
+	use core::iter;
+
 	use hex_slice::AsHex;
 
 	fn case(input: &[Run], expected: &[u8]) {
@@ -650,6 +667,15 @@ mod test_with_frames {
 			&[Run::Clear(16), Run::Set(16)],
 			&[0x90, 0xd0]
 		);
+
+		case(
+			&[Run::Set(8)],
+			&[0xc8]
+		);
+		case(
+			&[Run::Set(8), Run::Clear(8)],
+			&[0xc8, 0x88]
+		);
 	}
 
 	#[test]
@@ -672,11 +698,11 @@ mod test_with_frames {
 	fn conditional_on_padding() {
 		case(
 			&[Run::Set(1), Run::Clear(15)],
-			&[0x10, 0x80, 0x00]
+			&[0x08, 0x80, 0x88]
 		);
 		case(
 			&[Run::Set(7), Run::Clear(1), Run::Set(8)],
-			&[0x10, 0xfe, 0xff]
+			&[0x08, 0xfe, 0xc8]
 		);
 	}
 
@@ -725,15 +751,34 @@ mod test_with_frames {
 		}
 		// ...then add this
 		inputs.push(Run::Set(1));
-		inputs.push(Run::Clear(2));
+		inputs.push(Run::Clear(20));
 
 		outputs.push(0x7fu8); // frame size
 		for _ in 0..(MAX_FRAME_SIZE / 8) {
 			outputs.push(0xaa);
 		}
-		// the final Clear(2) should be hoofed out
-		outputs.push(0x82);
+		// the final Clear(20) should be hoofed out
+		outputs.push(0x94);
 
 		case(inputs.as_slice(), outputs.as_slice());
+	}
+
+	#[test]
+	fn always_try_to_fill_frame() {
+		fn data() -> impl Iterator<Item = bool> {
+			let core = iter::successors(Some(0), |n| Some((n + 1) & 15));
+
+			core.map(|n| (4..12).contains(&n)).take(MAX_FRAME_SIZE as usize * 2)
+		}
+
+		let buf = encode(data().fuse()).collect::<Vec<u8>>();
+		assert_hex::assert_eq_hex!(&[
+			0,
+			0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0,
+			0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0,
+			0,
+			0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0,
+			0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0,
+		], &*buf);
 	}
 }

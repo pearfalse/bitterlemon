@@ -21,6 +21,7 @@ arrayvec = ">= 0.5"
 criterion = "0.3"
 random = ">= 0.12"
 hex-slice = "0.1.4"
+assert_hex = "0.4.1"
 
 [[bench]]
 name = "test_encode_round_trip"

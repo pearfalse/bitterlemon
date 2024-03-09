@@ -98,6 +98,13 @@ impl Run {
 		matches!(*self, Run::Set(_))
 	}
 
+	pub fn with_new_len(self, new_len: u8) -> Run {
+		debug_assert!(new_len <= MAX_RUN_SIZE);
+		let mut copy = self;
+		*copy.len_mut() = new_len;
+		copy
+	}
+
 	pub fn len(&self) -> u8 {
 		match *self {
 			Run::Set(x) => x,
