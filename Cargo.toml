@@ -16,9 +16,6 @@ keywords = ["rle", "bitstream", "pack"]
 codegen-units = 1
 lto = true
 
-[features]
-# no_std = []
-
 [dev-dependencies]
 arrayvec = ">= 0.5"
 criterion = "0.3"

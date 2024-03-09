@@ -9,7 +9,7 @@ use crate::{
 	Run,
 };
 
-use std::fmt;
+use core::fmt;
 
 /// Holds runs with a rudimentary deque-style interface.
 ///

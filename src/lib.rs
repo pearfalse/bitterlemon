@@ -52,10 +52,8 @@
 //! assert_eq!(2, error.bytes_expected);
 //! ```
 
+#![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
-
-// TODO: almost possible, just need to dummy out formatters via a feature flag
-// #![cfg_attr(all(feature = "no_std", not(test)), no_std)]
 
 mod encoding;
 mod decoding;
@@ -242,7 +240,7 @@ impl Bit {
 	}
 }
 
-impl std::ops::Deref for Bit {
+impl core::ops::Deref for Bit {
 	type Target = u8;
 	fn deref(&self) -> &Self::Target {
 		self.as_u8()
