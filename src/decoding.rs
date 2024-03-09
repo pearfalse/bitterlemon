@@ -81,13 +81,7 @@ impl Decoder {
 						let next_stage = input.take()
 						.ok_or_else(|| TruncatedInputError::from_bits(*bits_remaining))?;
 						// assign to *maybe_stage, and reborrow
-						*maybe_stage = Some(next_stage);
-						match maybe_stage {
-							Some(yes) => yes,
-							None => unsafe {
-								::core::hint::unreachable_unchecked()
-							}
-						}
+						maybe_stage.insert(next_stage)
 					}
 				};
 				// grab next bit from frame
