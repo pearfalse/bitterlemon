@@ -17,7 +17,7 @@ use std::fmt;
 /// which is too busy outputting a frame to ingest them.
 #[derive(Clone)]
 pub(crate) struct RunBuffer {
-	store: [MaybeUninit<Run>; Self::cap_u()],
+	store: [MaybeUninit<Run>; Self::CAP_U],
 	head: u8,
 	tail: u8,
 	len: u8,
@@ -38,7 +38,7 @@ impl RunBuffer {
 		let store = unsafe {
 			// SAFETY: this is a type hack that projects the uninit state to the array elements
 			// (see also: unstable stdlib feature `maybe_uninit_uninit_array`)
-			MaybeUninit::<[MaybeUninit<Run>; Self::cap_u()]>::uninit().assume_init()
+			MaybeUninit::<[MaybeUninit<Run>; Self::CAP_U]>::uninit().assume_init()
 		};
 
 		RunBuffer {
@@ -49,19 +49,18 @@ impl RunBuffer {
 		}
 	}
 
-	// This is set from a combination of the bitterlemon algorithm and the current implementation;
-	// the number comes from
-	// - 16 bytes for a full frame
-	// - + 1 byte frame header
-	// - + 1 extra run in flight for that call
-	pub const fn capacity() -> u8 { 18 }
+	// This is set from a combination of the bitterlemon algorithm and the current implementation
+	const CAPACITY: u8 = 16 // num bytes in a full frame
+		+ 1 // frame header
+		+ 1 // an extra run in-flight for that call
+		;
 
-	const fn cap_u() -> usize { Self::capacity() as usize }
+	const CAP_U: usize = Self::CAPACITY as usize;
 
 	#[inline]
 	fn inc_ptr(ptr: u8) -> u8 {
 		match ptr.wrapping_add(1) {
-			n if n == Self::capacity() => 0,
+			n if n == Self::CAPACITY => 0,
 			n => n,
 		}
 	}
@@ -69,7 +68,7 @@ impl RunBuffer {
 	#[inline]
 	fn dec_ptr(ptr: u8) -> u8 {
 		match ptr {
-			n if n == 0 => Self::capacity() - 1,
+			n if n == 0 => Self::CAPACITY - 1,
 			n => n.wrapping_sub(1),
 		}
 	}
@@ -108,8 +107,8 @@ impl RunBuffer {
 	}
 
 	pub fn push_back(&mut self, run: Run) -> Result<(), Run> {
-		if self.len == Self::capacity() { return Err(run); }
-		debug_assert!(self.len < Self::capacity());
+		if self.len == Self::CAPACITY { return Err(run); }
+		debug_assert!(self.len < Self::CAPACITY);
 
 		unsafe {
 			// SAFETY: self.tail is in range, and the element will not be read from
@@ -123,13 +122,13 @@ impl RunBuffer {
 	}
 
 	pub fn push_front(&mut self, run: Run) -> Result<(), Run> {
-		if self.len == Self::capacity() { return Err(run); }
-		debug_assert!(self.len < Self::capacity());
+		if self.len == Self::CAPACITY { return Err(run); }
+		debug_assert!(self.len < Self::CAPACITY);
 
 		let new_head = Self::dec_ptr(self.head);
 		unsafe {
 			// checked in debug builds
-			debug_assert!(new_head < Self::capacity());
+			debug_assert!(new_head < Self::CAPACITY);
 			ptr::write(self.get_unchecked_mut(new_head), run);
 		}
 
@@ -144,7 +143,7 @@ impl RunBuffer {
 
 		let run = unsafe {
 			// checked in debug builds
-			debug_assert!(self.head < Self::capacity());
+			debug_assert!(self.head < Self::CAPACITY);
 			let target = self.get_unchecked_mut(self.head);
 			// ptr::read isn't strictly necessary here, since Run is Copy and !Drop, but it
 			// provides symmetry with `push_back`, and doesn't require the above invariants
@@ -197,7 +196,7 @@ mod test_run_buffer {
 	#[test]
 	fn test_loop_stability() {
 		let mut rb = RunBuffer::new();
-		for _ in 0..(RunBuffer::capacity() * 10) {
+		for _ in 0..(RunBuffer::CAPACITY * 10) {
 			rb.push_back(Run::Set(1)).unwrap();
 			assert_eq!(Some(Run::Set(1)), rb.pop_front());
 		}
@@ -248,6 +247,6 @@ mod test_run_buffer {
 	}
 
 	fn fill_with_runs() -> impl Iterator<Item = Run> {
-		std::iter::repeat(Run::Clear(2)).take(RunBuffer::capacity() as usize)
+		std::iter::repeat(Run::Clear(2)).take(RunBuffer::CAP_U)
 	}
 }
